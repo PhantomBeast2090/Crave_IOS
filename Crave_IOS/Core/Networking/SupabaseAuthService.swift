@@ -11,8 +11,8 @@ import Supabase
 ///   registration_number); with email confirmation enabled the backend
 ///   returns no session — profile creation is deferred to the first
 ///   verified `signIn`.
-/// - `restoreSession` uses stored access/refresh tokens via
-///   `AuthClient.setSession` (equivalent to Android's `importAuthToken`).
+/// - `restoreSession` relies on the Swift SDK's automatic session
+///   persistence (equivalent to Android's `importAuthToken`).
 /// - `signOut` clears the Supabase session and any local token cache.
 nonisolated struct SupabaseAuthService: AuthService {
     private let client: SupabaseClient
@@ -98,12 +98,12 @@ nonisolated struct SupabaseAuthService: AuthService {
         } catch let authError as AuthError {
             throw mapAuthError(authError, context: "signIn")
         } catch {
-            throw AppError.network(message: error.localizedDescription)
+            throw AppError.network(statusCode: -1, message: error.localizedDescription)
         }
 
         // 2️⃣ Ensure we have a user id
         guard let userId = session.user.id.uuidString.nilIfEmpty else {
-            throw AppError.unknown(message: "Session is missing user ID.")
+            throw AppError.message("Session is missing user ID.")
         }
 
         // 3️⃣ Query profiles table for this user
@@ -126,9 +126,9 @@ nonisolated struct SupabaseAuthService: AuthService {
             finalProfile = existing
         } else {
             let meta = session.user.userMetadata
-            let nameFromMeta = (meta["name"]?.stringValue).nilIfEmpty ?? email.prefix(while: { $0 != "@" }).description
-            let phoneFromMeta = (meta["phone"]?.stringValue).nilIfEmpty
-            let regNoFromMeta = (meta["registration_number"]?.stringValue).nilIfEmpty
+            let nameFromMeta = meta["name"]?.stringValue?.nilIfEmpty ?? email.prefix(while: { $0 != "@" }).description
+            let phoneFromMeta = meta["phone"]?.stringValue?.nilIfEmpty
+            let regNoFromMeta = meta["registration_number"]?.stringValue?.nilIfEmpty
 
             let newProfile = NewProfileDto(
                 id: userId,
@@ -145,7 +145,7 @@ nonisolated struct SupabaseAuthService: AuthService {
                     .insert(newProfile)
                     .execute()
             } catch {
-                throw AppError.unknown(message: "Could not create your profile. Ensure the INSERT RLS policy is applied.")
+                throw AppError.message("Could not create your profile. Ensure the INSERT RLS policy is applied.")
             }
 
             // Re-fetch the freshly inserted profile
@@ -158,14 +158,14 @@ nonisolated struct SupabaseAuthService: AuthService {
                     .execute()
                     .value
             } catch {
-                throw AppError.unknown(message: "Profile was inserted but could not be retrieved. Please try logging in again.")
+                throw AppError.message("Profile was inserted but could not be retrieved. Please try logging in again.")
             }
         }
 
         // 5️⃣ Enforce `is_active`
         guard finalProfile.is_active else {
             try await auth.signOut()
-            throw AppError.unknown(message: "Your account has been disabled. Please contact support.")
+            throw AppError.message("Your account has been disabled. Please contact support.")
         }
 
         return AuthUser(
@@ -184,8 +184,12 @@ nonisolated struct SupabaseAuthService: AuthService {
     ) async throws -> AuthUser {
         // Build metadata exactly like Android: name, phone, registration_number
         var metadata: [String: AnyJSON] = ["name": AnyJSON.string(name)]
-        if let phone, !phone.isEmpty { metadata["phone"] = AnyJSON.string(phone) }
-        if let reg, !reg.isEmpty { metadata["registration_number"] = AnyJSON.string(reg) }
+        if let phone, !phone.isEmpty {
+            metadata["phone"] = AnyJSON.string(phone)
+        }
+        if let registrationNumber, !registrationNumber.isEmpty {
+            metadata["registration_number"] = AnyJSON.string(registrationNumber)
+        }
 
         do {
             let response = try await auth.signUp(
@@ -198,25 +202,15 @@ nonisolated struct SupabaseAuthService: AuthService {
             // Profile creation is deferred to the first verified `signIn`.
             // We return a lightweight AuthUser so the UI can proceed to the
             // "check your email" screen.
-            if let user = response.user {
-                return AuthUser(
-                    id: user.id.uuidString,
-                    email: email,
-                    role: .student
-                )
-            } else {
-                // No user in response (email confirmation required) — still return
-                // a placeholder so callers can show the confirmation UI.
-                return AuthUser(
-                    id: "",
-                    email: email,
-                    role: .student
-                )
-            }
+            return AuthUser(
+                id: response.user.id.uuidString,
+                email: email,
+                role: .student
+            )
         } catch let authError as AuthError {
             throw mapAuthError(authError, context: "signUp")
         } catch {
-            throw AppError.network(message: error.localizedDescription)
+            throw AppError.network(statusCode: -1, message: error.localizedDescription)
         }
     }
 
@@ -235,49 +229,41 @@ nonisolated struct SupabaseAuthService: AuthService {
     }
 
     private func mapAuthError(_ error: AuthError, context: String) -> AppError {
-        let message: String
         switch error {
         case .api(_, let code, _, _):
             switch code {
             case .invalidCredentials:
-                message = "Invalid email or password."
+                return .invalidCredentials
             case .emailNotConfirmed:
-                message = "Please verify your email before logging in. Check your inbox."
+                return .message("Please verify your email before logging in. Check your inbox.")
             case .overRequestRateLimit, .overEmailSendRateLimit:
-                message = "Too many attempts. Please wait a moment and try again."
+                return .message("Too many attempts. Please wait a moment and try again.")
             case .userAlreadyExists, .emailExists:
-                message = "An account with this email already exists."
+                return .message("An account with this email already exists.")
             case .weakPassword:
-                message = "Password is too weak. Please choose a stronger password."
+                return .message("Password is too weak. Please choose a stronger password.")
             case .signupDisabled:
-                message = "Sign-ups are currently disabled."
+                return .message("Sign-ups are currently disabled.")
             case .userBanned:
-                message = "This account has been banned."
+                return .message("This account has been banned.")
             default:
-                message = error.message
+                return .message(error.message)
             }
         case .sessionMissing:
-            message = "Session expired. Please log in again."
+            return .message("Session expired. Please log in again.")
         case .weakPassword(let msg, _):
-            message = msg
+            return .message(msg)
         case .pkceGrantCodeExchange(let msg, _, _),
              .implicitGrantRedirect(let msg):
-            message = msg
-        case .jwtVerificationFailed(let msg):
-            message = msg
+            return .message(msg)
         default:
-            message = error.message
+            return .message(error.message)
         }
-        return AppError.authentication(message: message)
     }
 }
 
 // MARK: - Small extensions
 
 private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
-}
-
-private extension UUID {
-    var uuidString: String { uuidString }
+    nonisolated var nilIfEmpty: String? { isEmpty ? nil : self }
 }

@@ -27,6 +27,9 @@ final class AppState {
     /// True when the backend isn't wired up yet — drives the "not configured" notice.
     let isBackendConfigured: Bool
 
+    /// Backing storage for repository injection. This is resolved by `AppState+Repository.swift`.
+    @ObservationIgnored var repositoryStorage: AppRepository?
+
     private let auth: any AuthService
 
     init(auth: (any AuthService)? = nil) {
