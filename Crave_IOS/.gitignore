@@ -16,14 +16,8 @@ Pods/
 # Carthage
 Carthage/Build/
 
-# Fastlane
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots/
-fastlane/test_output/
-
 # Secrets
-Sources/Core/Config/Secrets.swift
+Core/Config/Secrets.swift
 
 # Environment
 .env

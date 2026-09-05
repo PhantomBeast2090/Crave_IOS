@@ -23,10 +23,34 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4F64E69000000000000000A1 /* Supabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXBuildFile section */
+		4F64E69000000000000000A1 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 4F64E69000000000000000A3 /* Supabase */; };
+/* End PBXBuildFile section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		4F64E69000000000000000A2 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4F64E69000000000000000A3 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4F64E69000000000000000A2 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin PBXGroup section */
 		4F64E668304BD8420076092E = {
@@ -65,6 +89,7 @@
 			);
 			name = Crave_IOS;
 			packageProductDependencies = (
+				4F64E69000000000000000A3 /* Supabase */,
 			);
 			productName = Crave_IOS;
 			productReference = 4F64E671304BD8430076092E /* Crave_IOS.app */;
@@ -94,6 +119,9 @@
 			);
 			mainGroup = 4F64E668304BD8420076092E;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				4F64E69000000000000000A2 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4F64E672304BD8430076092E /* Products */;
 			projectDirPath = "";
