@@ -100,8 +100,8 @@ struct OutletDetailView: View {
                 
                 HStack(spacing: GagShapes.spacingM) {
                     Label(outlet.location.building, systemImage: "location.fill")
-                    if let floor = outlet.location.floor, !floor.isEmpty {
-                        Label("Floor \(floor)", systemImage: "building.2.fill")
+                    if !outlet.location.floor.isEmpty {
+                        Label("Floor \(outlet.location.floor)", systemImage: "building.2.fill")
                     }
                     if outlet.rating > 0 {
                         Label(String(format: "%.1f", outlet.rating), systemImage: "star.fill")

@@ -25,7 +25,7 @@ nonisolated struct FoodItem: Sendable, Hashable, Identifiable {
 }
 
 /// A customization group, e.g. "Spice Level" with selectable options.
-nonisolated struct FoodCustomization: Sendable, Hashable, Identifiable {
+nonisolated struct FoodCustomization: Sendable, Hashable, Identifiable, Codable {
     let id: String
     let name: String
     let options: [CustomizationOption]
@@ -33,7 +33,7 @@ nonisolated struct FoodCustomization: Sendable, Hashable, Identifiable {
     let maxSelections: Int
 }
 
-nonisolated struct CustomizationOption: Sendable, Hashable, Identifiable {
+nonisolated struct CustomizationOption: Sendable, Hashable, Identifiable, Codable {
     let id: String
     let name: String
     let extraPrice: Double
@@ -59,12 +59,14 @@ nonisolated struct FoodSearchFilter: Sendable, Equatable {
     var sortBy: SortOption = .relevance
 }
 
-nonisolated enum SortOption: String, Sendable, CaseIterable {
+nonisolated enum SortOption: String, Sendable, CaseIterable, Identifiable {
     case relevance = "RELEVANCE"
     case priceLowToHigh = "PRICE_LOW_TO_HIGH"
     case priceHighToLow = "PRICE_HIGH_TO_LOW"
     case rating = "RATING"
     case prepTime = "PREP_TIME"
+
+    var id: String { rawValue }
 
     var label: String {
         switch self {

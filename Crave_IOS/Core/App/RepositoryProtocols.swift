@@ -48,7 +48,7 @@ protocol FoodRepository: Sendable {
     func observeFavorites() -> AsyncStream<[FoodItem]>
     
     /// Sync favorites from Supabase to local cache
-    func syncFavorites() async throws
+    func syncFavorites() async throws -> [FoodItem]
     
     /// Toggle favorite status (local + Supabase)
     func toggleFavorite(foodItemId: String) async throws -> Bool

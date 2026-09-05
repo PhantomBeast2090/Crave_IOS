@@ -53,7 +53,7 @@ struct FoodDetailView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
-            if case .loaded(let item) = viewModel?.state {
+            if case .loaded(let item) = viewModel.state {
                 bottomBar(item: item)
             }
         }
@@ -85,7 +85,7 @@ struct FoodDetailView: View {
             .clipped()
             
             Button {
-                Task { await viewModel?.toggleFavorite() }
+                Task { await self.viewModel?.toggleFavorite() }
             } label: {
                 Image(systemName: item.isFavorite ? "heart.fill" : "heart")
                     .font(.system(size: 20))

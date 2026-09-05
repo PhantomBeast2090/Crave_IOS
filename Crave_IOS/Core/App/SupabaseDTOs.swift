@@ -21,8 +21,9 @@ nonisolated struct OutletDto: Decodable, Sendable {
     let totalReviews: Int
 
     enum CodingKeys: String, CodingKey {
-        case id, name, description, vendorId, phone, building, floor, latitude, longitude, rating, totalReviews
+        case id, name, description, phone, building, floor, latitude, longitude, rating
         case imageUrl = "image_url"
+        case vendorId = "vendor_id"
         case isOpen = "is_open"
         case isActive = "is_active"
         case locationDescription = "location_description"
@@ -37,7 +38,9 @@ nonisolated struct OperatingHoursDto: Decodable, Sendable {
     let daysOpen: [String]
 
     enum CodingKeys: String, CodingKey {
-        case openTime, closeTime, daysOpen
+        case openTime = "open_time"
+        case closeTime = "close_time"
+        case daysOpen = "days_open"
     }
 }
 

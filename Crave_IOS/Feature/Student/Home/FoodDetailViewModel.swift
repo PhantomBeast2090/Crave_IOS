@@ -35,7 +35,7 @@ final class FoodDetailViewModel {
     func toggleFavorite() async {
         guard case .loaded(var item) = state else { return }
         do {
-            let newStatus = try await repository.food.toggleFavorite(item.id)
+            let newStatus = try await repository.food.toggleFavorite(foodItemId: item.id)
             item.isFavorite = newStatus
             state = .loaded(item)
         } catch {

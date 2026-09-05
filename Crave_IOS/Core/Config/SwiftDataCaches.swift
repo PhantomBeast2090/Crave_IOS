@@ -45,7 +45,8 @@ actor SwiftDataOutletCache: OutletLocalCache {
     func saveOutlets(_ outlets: [Outlet]) async throws {
         let context = ModelContext(modelContainer)
         for outlet in outlets {
-            let descriptor = FetchDescriptor<CachedOutlet>(predicate: #Predicate { $0.id == outlet.id })
+            let outletId = outlet.id
+            let descriptor = FetchDescriptor<CachedOutlet>(predicate: #Predicate { $0.id == outletId })
             if let existing = try context.fetch(descriptor).first {
                 // Update existing
                 let updated = CachedOutlet(outlet: outlet)
@@ -88,7 +89,8 @@ actor SwiftDataFoodCache: FoodLocalCache {
     func saveFoodItems(_ items: [FoodItem]) async throws {
         let context = ModelContext(modelContainer)
         for item in items {
-            let descriptor = FetchDescriptor<CachedFoodItem>(predicate: #Predicate { $0.id == item.id })
+            let itemId = item.id
+            let descriptor = FetchDescriptor<CachedFoodItem>(predicate: #Predicate { $0.id == itemId })
             if let existing = try context.fetch(descriptor).first {
                 let updated = CachedFoodItem(foodItem: item)
                 updated.isFavorite = existing.isFavorite // Preserve favorite status

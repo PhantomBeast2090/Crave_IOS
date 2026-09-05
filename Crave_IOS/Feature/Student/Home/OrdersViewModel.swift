@@ -38,7 +38,7 @@ final class OrderEntity {
     var tax: Double
     var total: Double
     var status: OrderStatus
-    var pickupSlot: PickupSlot?
+    @Transient var pickupSlot: PickupSlot?
     var estimatedPrepMinutes: Int
     var actualPrepMinutes: Int?
     var createdAt: Date = Date()

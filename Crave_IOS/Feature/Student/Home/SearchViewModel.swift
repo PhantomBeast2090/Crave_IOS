@@ -41,7 +41,7 @@ final class SearchViewModel {
         }
     }
     
-    private func performSearch() async {
+    func performSearch() async {
         guard !filter.query.isEmpty || filter.outletId != nil || filter.category != nil || filter.isVeg != nil || filter.maxPrice != nil else {
             state = .idle
             return

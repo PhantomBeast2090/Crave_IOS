@@ -31,7 +31,7 @@ struct CartView: View {
                 title: "Your cart is empty",
                 message: "Add some delicious food to get started!",
                 actionTitle: "Browse Outlets",
-                action: { appState.phase = .main(.student) }
+                action: { appState.enterMain(as: .student) }
             )
         } else {
             List {
@@ -75,7 +75,7 @@ struct CartView: View {
 
 struct CartItemRow: View {
     let item: CartItemEntity
-    @ObservedObject var viewModel: CartViewModel
+    let viewModel: CartViewModel
     
     var body: some View {
         HStack(spacing: GagShapes.spacingM) {

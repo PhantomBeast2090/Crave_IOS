@@ -145,9 +145,9 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
         localCache.observeFavorites()
     }
     
-    func syncFavorites() async throws {
+    func syncFavorites() async throws -> [FoodItem] {
         let favIds = try await getFavoriteIds()
-        guard !favIds.isEmpty else { return }
+        guard !favIds.isEmpty else { return [] }
         
         let dtos: [FoodItemDto] = try await client
             .from("food_items")
@@ -158,14 +158,15 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
         
         let domains = dtos.map { $0.toDomain(favoriteIds: favIds) }
         try await localCache.saveFoodItems(domains)
+        return domains
     }
     
-    func toggleFavorite(_ foodItemId: String) async throws -> Bool {
+    func toggleFavorite(foodItemId: String) async throws -> Bool {
         let current = try await localCache.isFavorite(foodItemId)
         let newStatus = !current
-        
+
         try await localCache.updateFavorite(foodItemId, isFavorite: newStatus)
-        
+
         // Sync to Supabase favorites table
         if let userId = auth.currentSession?.user.id.uuidString {
             if newStatus {
@@ -182,11 +183,11 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
                     .execute()
             }
         }
-        
+
         return newStatus
     }
     
-    func isFavorite(_ foodItemId: String) async throws -> Bool {
+    func isFavorite(foodItemId: String) async throws -> Bool {
         try await localCache.isFavorite(foodItemId)
     }
     
@@ -217,7 +218,7 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
         return dtos.map { $0.toDomain(favoriteIds: []) }
     }
     
-    func updateFoodAvailability(_ foodId: String, isAvailable: Bool) async throws {
+    func updateFoodAvailability(foodId: String, isAvailable: Bool) async throws {
         try await client
             .from("food_items")
             .update(["is_available": isAvailable])
@@ -225,7 +226,7 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
             .execute()
     }
     
-    func updateFoodPrice(_ foodId: String, price: Double) async throws {
+    func updateFoodPrice(foodId: String, price: Double) async throws {
         try await client
             .from("food_items")
             .update(["price": price])
