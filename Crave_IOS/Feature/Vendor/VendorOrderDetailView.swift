@@ -19,6 +19,7 @@ struct VendorOrderDetailView: View {
         .background(AppTheme.screenBackground)
         .navigationTitle("Order Details")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .task { await setupViewModel() }
         .confirmationDialog("Reject this order?", isPresented: $showRejectConfirm, titleVisibility: .visible) {
             Button("Reject Order", role: .destructive) {

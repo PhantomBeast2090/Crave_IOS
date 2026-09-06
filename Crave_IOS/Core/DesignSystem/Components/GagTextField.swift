@@ -15,6 +15,8 @@ struct GagTextField: View {
     var keyboardType: UIKeyboardType = .default
     var autocapitalization: TextInputAutocapitalization = .never
     var errorMessage: String? = nil
+    /// UI-test hook. Nil by default — never affects production behavior.
+    var accessibilityIdentifier: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: GagShapes.spacingXS) {
@@ -36,6 +38,7 @@ struct GagTextField: View {
             .autocorrectionDisabled()
             .keyboardType(keyboardType)
             .textContentType(textContentType)
+            .modifier(AccessibilityIdentifierModifier(id: accessibilityIdentifier))
             .padding(.horizontal, GagShapes.spacingL)
             .frame(height: 48)
             .background(GagColors.surfaceVariant)

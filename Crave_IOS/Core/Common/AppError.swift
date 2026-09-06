@@ -4,6 +4,7 @@ import Foundation
 nonisolated enum AppError: LocalizedError, Sendable, Equatable {
     case notConfigured
     case invalidCredentials
+    case emailConfirmationRequired
     case network(statusCode: Int, message: String)
     case message(String)
 
@@ -13,6 +14,8 @@ nonisolated enum AppError: LocalizedError, Sendable, Equatable {
             return "Backend is not configured yet. Paste the Supabase anon key into Core/Config/Secrets.swift."
         case .invalidCredentials:
             return "Invalid email or password."
+        case .emailConfirmationRequired:
+            return "Please verify your email before logging in. Check your inbox."
         case .network(let code, let message):
             return "Network error (\(code)): \(message)"
         case .message(let m):

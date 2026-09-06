@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// Student main flow — TabView root with per-tab navigation stacks.
-/// Tabs mirror Android's bottom nav: Home, Orders, Favorites, Alerts, Profile
-/// (cart lives in the Home header + food screens, like Android).
+/// Tabs mirror Android's bottom nav exactly (Home, Orders, Favorites,
+/// Alerts, Profile) so iOS never overflows into a "More" tab. Search opens
+/// from the Home header's search field, like Android.
 struct StudentFlow: View {
     @Environment(AppState.self) private var appState
     @State private var selection = 0
@@ -14,26 +15,22 @@ struct StudentFlow: View {
                 .tabItem { Label("Home", systemImage: "house") }
                 .tag(0)
 
-            NavigationStack { SearchView() }
-                .tabItem { Label("Search", systemImage: "magnifyingglass") }
-                .tag(1)
-
             NavigationStack { OrderHistoryView() }
                 .tabItem { Label("Orders", systemImage: "list.bullet.rectangle") }
-                .tag(2)
+                .tag(1)
 
             NavigationStack { FavoritesView() }
                 .tabItem { Label("Favorites", systemImage: "heart") }
-                .tag(3)
+                .tag(2)
 
             NavigationStack { NotificationsView() }
                 .tabItem { Label("Alerts", systemImage: "bell") }
                 .badge(unreadCount)
-                .tag(4)
+                .tag(3)
 
             NavigationStack { ProfileView() }
                 .tabItem { Label("Profile", systemImage: "person") }
-                .tag(5)
+                .tag(4)
         }
         .tint(GagColors.brandOrange)
         .task { await refreshBadges() }

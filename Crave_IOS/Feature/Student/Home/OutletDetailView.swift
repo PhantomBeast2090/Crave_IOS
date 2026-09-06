@@ -4,7 +4,8 @@ struct OutletDetailView: View {
     let outletId: String
     @Environment(AppState.self) private var appState
     @State private var viewModel: OutletDetailViewModel?
-    
+    @State private var quickAdd: QuickAddHelper?
+
     var body: some View {
         Group {
             if let viewModel {
@@ -18,10 +19,46 @@ struct OutletDetailView: View {
         // in-flight load with a CancellationError.
         .task { await setupViewModel() }
         .refreshable { await viewModel?.refresh() }
+        .navigationDestination(item: detailBinding) { item in
+            FoodDetailView(foodId: item.id, outletId: item.outletId)
+        }
+        .alert("Different Outlet", isPresented: conflictBinding) {
+            Button("Clear & Add", role: .destructive) {
+                quickAdd?.confirmConflictAdd()
+            }
+            Button("Keep Cart", role: .cancel) {
+                quickAdd?.dismissConflict()
+            }
+        } message: {
+            Text("Your cart contains items from a different outlet. Clear cart and add from this outlet?")
+        }
+        .overlay(alignment: .bottom) {
+            if let message = quickAdd?.toastMessage {
+                GagToast(message: message)
+                    .padding(.bottom, 90)
+            }
+        }
     }
-    
+
+    private var detailBinding: Binding<FoodItem?> {
+        Binding(
+            get: { quickAdd?.detailItem },
+            set: { quickAdd?.detailItem = $0 }
+        )
+    }
+
+    private var conflictBinding: Binding<Bool> {
+        Binding(
+            get: { quickAdd?.conflictItem != nil },
+            set: { if !$0 { quickAdd?.dismissConflict() } }
+        )
+    }
+
     private func setupViewModel() async {
         guard viewModel == nil else { return }
+        if quickAdd == nil {
+            quickAdd = QuickAddHelper(repository: appState.repository.cart)
+        }
         let vm = OutletDetailViewModel(outletId: outletId, repository: appState.repository)
         self.viewModel = vm
         await vm.load()
@@ -52,6 +89,23 @@ struct OutletDetailView: View {
         .background(AppTheme.screenBackground)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        // Hide the floating tab bar on pushed detail (see FoodDetailView).
+        .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            // Cart must stay reachable from pushed screens (the tab bar is
+            // hidden here), otherwise users can only reach it via Home.
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    CartView()
+                } label: {
+                    Image(systemName: "cart")
+                        .font(.system(size: 20))
+                        .foregroundStyle(GagColors.onSurface)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("detailCartButton")
+            }
+        }
     }
     
     private func outletHeader(_ outlet: Outlet) -> some View {
@@ -136,6 +190,13 @@ struct OutletDetailView: View {
                 .font(GagTypography.titleMedium)
                 .foregroundStyle(GagColors.onSurface)
                 .padding(.horizontal, GagShapes.spacingL)
+
+            if let addError = quickAdd?.errorMessage {
+                Text(addError)
+                    .font(GagTypography.labelMedium)
+                    .foregroundStyle(GagColors.error)
+                    .padding(.horizontal, GagShapes.spacingL)
+            }
             
             if menu.isEmpty {
                 GagEmptyView(
@@ -150,9 +211,10 @@ struct OutletDetailView: View {
                         NavigationLink {
                             FoodDetailView(foodId: item.id, outletId: outletId)
                         } label: {
-                            FoodItemCard(item: item)
+                            FoodItemCard(item: item, onAddToCart: { quickAdd?.quickAdd(item) })
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("foodCard")
                         .padding(.horizontal, GagShapes.spacingL)
                     }
                 }

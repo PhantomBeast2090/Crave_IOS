@@ -197,10 +197,15 @@ nonisolated struct SupabaseAuthService: AuthService {
                 data: metadata
             )
 
-            // With email confirmation enabled, Supabase returns no session here.
-            // Profile creation is deferred to the first verified `signIn`.
-            // We return a lightweight AuthUser so the UI can proceed to the
-            // "check your email" screen.
+            // With email confirmation enabled, Supabase returns no session —
+            // the user MUST verify before signing in (Android parity: the UI
+            // shows a "Verify Your Email" dialog and routes back to login).
+            // Entering the main flow without a session would leave every
+            // authenticated call broken, so fail explicitly here.
+            guard response.session != nil else {
+                throw AppError.emailConfirmationRequired
+            }
+
             return AuthUser(
                 id: response.user.id.uuidString,
                 email: email,

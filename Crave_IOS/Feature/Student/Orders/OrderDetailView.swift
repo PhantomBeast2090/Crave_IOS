@@ -21,6 +21,7 @@ struct OrderDetailView: View {
         .background(AppTheme.screenBackground)
         .navigationTitle("Order Details")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .task { await setupViewModel() }
         .navigationDestination(isPresented: $showTracking) {
             OrderTrackingView(orderId: orderId)

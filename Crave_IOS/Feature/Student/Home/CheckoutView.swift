@@ -83,6 +83,7 @@ struct CheckoutView: View {
                     title: viewModel.selectedSlot == nil ? "Select a Pickup Slot First" : "Place Order",
                     isLoading: placing,
                     isEnabled: viewModel.canPlaceOrder,
+                    accessibilityIdentifier: "placeOrderButton",
                     action: { Task { await viewModel.placeOrder() } }
                 )
             }
@@ -356,6 +357,7 @@ struct PickupSlotRow: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("pickupSlotRow")
         .disabled(!slot.isSelectable)
         .opacity(slot.isSelectable ? 1 : 0.5)
     }

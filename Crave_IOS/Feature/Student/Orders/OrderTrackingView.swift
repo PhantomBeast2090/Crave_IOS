@@ -19,6 +19,7 @@ struct OrderTrackingView: View {
         .background(AppTheme.screenBackground)
         .navigationTitle("Order Tracking")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .task { await setupViewModel() }
         .sheet(isPresented: $showQR) {
             NavigationStack { OrderQRView(orderId: orderId) }

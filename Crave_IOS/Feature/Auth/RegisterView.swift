@@ -13,6 +13,7 @@ struct RegisterView: View {
     @State private var confirmPassword = ""
     @State private var isRegistering = false
     @State private var errorMessage: String?
+    @State private var showVerifyEmail = false
 
     private var isValid: Bool {
         !name.isEmpty
@@ -36,29 +37,32 @@ struct RegisterView: View {
                     .padding(.top, GagShapes.spacingXL)
 
                     VStack(spacing: GagShapes.spacingL) {
-                        GagTextField(title: "Full Name", text: $name, placeholder: "Jane Doe", autocapitalization: .words)
+                        GagTextField(title: "Full Name", text: $name, placeholder: "Jane Doe", autocapitalization: .words, accessibilityIdentifier: "registerName")
                         GagTextField(
                             title: "Email",
                             text: $email,
                             placeholder: "you@srmist.edu.in",
                             textContentType: .emailAddress,
-                            keyboardType: .emailAddress
+                            keyboardType: .emailAddress,
+                            accessibilityIdentifier: "registerEmail"
                         )
                         GagTextField(
                             title: "Phone (optional)",
                             text: $phone,
                             placeholder: "+91",
                             textContentType: .telephoneNumber,
-                            keyboardType: .phonePad
+                            keyboardType: .phonePad,
+                            accessibilityIdentifier: "registerPhone"
                         )
                         GagTextField(
                             title: "Registration Number",
                             text: $registrationNumber,
                             placeholder: "RA2411003010001",
-                            autocapitalization: .characters
+                            autocapitalization: .characters,
+                            accessibilityIdentifier: "registerRegNo"
                         )
-                        GagTextField(title: "Password", text: $password, kind: .secure, textContentType: .newPassword)
-                        GagTextField(title: "Confirm Password", text: $confirmPassword, kind: .secure, textContentType: .newPassword)
+                        GagTextField(title: "Password", text: $password, kind: .secure, textContentType: .newPassword, accessibilityIdentifier: "registerPassword")
+                        GagTextField(title: "Confirm Password", text: $confirmPassword, kind: .secure, textContentType: .newPassword, accessibilityIdentifier: "registerConfirm")
                     }
 
                     if let errorMessage {
@@ -71,6 +75,7 @@ struct RegisterView: View {
                         title: "Create Account",
                         isLoading: isRegistering,
                         isEnabled: isValid,
+                        accessibilityIdentifier: "createAccountButton",
                         action: { Task { await register() } }
                     )
                 }
@@ -78,6 +83,11 @@ struct RegisterView: View {
             }
             .background(GagColors.background)
             .scrollDismissesKeyboard(.interactively)
+            .alert("Verify Your Email", isPresented: $showVerifyEmail) {
+                Button("Go to Login") { dismiss() }
+            } message: {
+                Text("We've sent a confirmation link to your email address. Please verify your email before logging in.")
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { dismiss() } label: {
@@ -106,6 +116,12 @@ struct RegisterView: View {
                 registrationNumber: registrationNumber.isEmpty ? nil : registrationNumber
             )
             dismiss()
+        } catch let appError as AppError {
+            if appError == .emailConfirmationRequired {
+                showVerifyEmail = true
+            } else {
+                errorMessage = appError.localizedDescription
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

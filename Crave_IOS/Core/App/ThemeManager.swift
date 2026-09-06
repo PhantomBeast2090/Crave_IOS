@@ -39,6 +39,16 @@ final class ThemeManager {
     }
 
     private init() {
+        // QA/UI-test override: `-crave-appearance light|dark|system`.
+        // Documented for screenshots and automated verification; the stored
+        // preference wins when no launch argument is present.
+        let args = ProcessInfo.processInfo.arguments
+        if let index = args.firstIndex(of: "-crave-appearance"),
+           args.indices.contains(index + 1),
+           let forced = AppThemeMode(rawValue: args[index + 1].uppercased()) {
+            self.mode = forced
+            return
+        }
         let raw = UserDefaults.standard.string(forKey: Self.storageKey) ?? ""
         self.mode = AppThemeMode(rawValue: raw) ?? .system
     }

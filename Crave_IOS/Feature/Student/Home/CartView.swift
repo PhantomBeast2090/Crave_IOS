@@ -96,6 +96,7 @@ struct CartView: View {
                     }
                     GagButton(
                         title: "Proceed to Checkout (\(Formatters.price(viewModel.total)))",
+                        accessibilityIdentifier: "proceedToCheckoutButton",
                         action: { showCheckout = true }
                     )
                 }
@@ -179,15 +180,9 @@ struct CartItemRow: View {
                 }
                 .buttonStyle(.plain)
 
-                Stepper(
-                    "",
-                    value: Binding(
-                        get: { item.quantity },
-                        set: { newValue in Task { await viewModel.updateQuantity(item, quantity: newValue) } }
-                    ),
-                    in: 1...CartMath.maxQuantity
-                )
-                .labelsHidden()
+                QuantitySelector(quantity: item.quantity, min: 1, max: CartMath.maxQuantity) { newValue in
+                    Task { await viewModel.updateQuantity(item, quantity: newValue) }
+                }
             }
         }
         .padding(.vertical, GagShapes.spacingS)

@@ -67,7 +67,7 @@ struct ProfileView: View {
 
             Section("Your activity") {
                 NavigationLink { OrderHistoryView() } label: { menuRow("list.bullet.rectangle", "My Orders") }
-                NavigationLink { FavoritesView() } label: { menuRow("heart", "Favourites") }
+                NavigationLink { FavoritesView() } label: { menuRow("heart", "Favorites") }
             }
 
             Section("App") {

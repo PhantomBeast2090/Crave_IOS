@@ -5,6 +5,7 @@ struct HomeView: View {
     @State private var viewModel: HomeViewModel?
     @State private var cartCount = 0
     @State private var unreadCount = 0
+    @State private var showSearch = false
 
     var body: some View {
         Group {
@@ -18,6 +19,23 @@ struct HomeView: View {
         // assigning `viewModel` — which swaps the branch — doesn't cancel the
         // in-flight load with a CancellationError.
         .task { await setupViewModel() }
+        // Live badge streams: the toolbar cart/alerts badges must reflect
+        // adds the moment they happen (even while a detail screen is pushed),
+        // not just on first appear or pull-to-refresh.
+        .task {
+            for await cart in appState.repository.cart.observeCart() {
+                cartCount = cart?.totalItems ?? 0
+            }
+        }
+        .task {
+            guard UserDefaults.standard.object(forKey: "notificationsEnabled") as? Bool ?? true else {
+                unreadCount = 0
+                return
+            }
+            for await items in appState.repository.notifications.observeNotifications() {
+                unreadCount = items.filter { !$0.isRead }.count
+            }
+        }
         .navigationTitle("Home")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -32,18 +50,23 @@ struct HomeView: View {
                         badgeIcon("bell", count: unreadCount)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("notificationsButton")
                     NavigationLink {
                         CartView()
                     } label: {
                         badgeIcon("cart", count: cartCount)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("cartButton")
                 }
             }
         }
         .refreshable {
             await viewModel?.refresh()
             await refreshBadges()
+        }
+        .navigationDestination(isPresented: $showSearch) {
+            SearchView()
         }
     }
 
@@ -89,7 +112,32 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: GagShapes.spacingL) {
                 heroHeader
-                
+
+                // Fake search field (Android parity) → real Search screen.
+                Button {
+                    showSearch = true
+                } label: {
+                    HStack(spacing: GagShapes.spacingM) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 18))
+                            .foregroundStyle(GagColors.onSurfaceVariant)
+                        Text("Search food, outlets…")
+                            .font(GagTypography.bodyMedium)
+                            .foregroundStyle(GagColors.onSurfaceDim)
+                        Spacer()
+                    }
+                    .padding(GagShapes.spacingM)
+                    .background(GagColors.surface)
+                    .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
+                    .overlay(
+                        GagShapes.cornerRadius(GagShapes.radiusLarge)
+                            .stroke(GagColors.outlineVariant, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("homeSearchField")
+                .padding(.horizontal, GagShapes.spacingL)
+
                 if !appState.isBackendConfigured {
                     GagNotConfiguredBanner()
                         .padding(.horizontal, GagShapes.spacingL)
@@ -145,7 +193,12 @@ struct HomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: GagShapes.spacingS) {
                     ForEach(categories) { category in
-                        CategoryChip(category: category)
+                        NavigationLink {
+                            SearchView()
+                        } label: {
+                            CategoryChip(category: category)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, GagShapes.spacingL)
@@ -174,6 +227,7 @@ struct HomeView: View {
                                 OutletCard(outlet: outlet)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityIdentifier("outletCard")
                         }
                     }
                     .padding(.horizontal, GagShapes.spacingL)

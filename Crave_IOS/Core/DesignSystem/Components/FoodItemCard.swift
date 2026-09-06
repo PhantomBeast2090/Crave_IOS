@@ -18,14 +18,18 @@ struct VegIndicator: View {
 }
 
 /// Food item card used in home feed, search results, outlet detail.
+///
+/// NOTE: this is a pure view — it must NOT wrap itself in a Button. Parent
+/// screens place it inside a NavigationLink, and an inner Button swallows
+/// taps so navigation never fires (previous root cause of unreachable food
+/// detail). The quick-add control is a separate inner Button and stays
+/// tappable inside the link.
 struct FoodItemCard: View {
     let item: FoodItem
-    var onTap: (() -> Void)? = nil
     var onAddToCart: (() -> Void)? = nil
 
     var body: some View {
-        Button(action: { onTap?() }) {
-            HStack(alignment: .top, spacing: GagShapes.spacingM) {
+        HStack(alignment: .top, spacing: GagShapes.spacingM) {
                 foodImage
 
                 VStack(alignment: .leading, spacing: 5) {
@@ -79,11 +83,13 @@ struct FoodItemCard: View {
                                 onAddToCart()
                             } label: {
                                 Image(systemName: "plus")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.system(size: 16, weight: .semibold))
                                     .foregroundStyle(.white)
                                     .frame(width: 30, height: 30)
                                     .background(GagColors.brandOrange)
                                     .clipShape(Circle())
+                                    .padding(5)
+                                    .contentShape(Circle())
                             }
                             .buttonStyle(.plain)
                             .disabled(!item.isAvailable)
@@ -99,8 +105,6 @@ struct FoodItemCard: View {
                 GagShapes.cornerRadius(GagShapes.radiusXLarge)
                     .stroke(GagColors.outlineVariant, lineWidth: 1)
             )
-        }
-        .buttonStyle(.plain)
     }
 
     private var foodImage: some View {

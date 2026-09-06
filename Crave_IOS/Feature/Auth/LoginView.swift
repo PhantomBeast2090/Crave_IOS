@@ -35,13 +35,15 @@ struct LoginView: View {
                         text: $email,
                         placeholder: "you@srmist.edu.in",
                         textContentType: .emailAddress,
-                        keyboardType: .emailAddress
+                        keyboardType: .emailAddress,
+                        accessibilityIdentifier: "loginEmail"
                     )
                     GagTextField(
                         title: "Password",
                         text: $password,
                         kind: .secure,
-                        textContentType: .password
+                        textContentType: .password,
+                        accessibilityIdentifier: "loginPassword"
                     )
                 }
 
@@ -55,6 +57,7 @@ struct LoginView: View {
                     title: "Sign In",
                     isLoading: isSigningIn,
                     isEnabled: !email.isEmpty && !password.isEmpty,
+                    accessibilityIdentifier: "signInButton",
                     action: { Task { await signIn() } }
                 )
 

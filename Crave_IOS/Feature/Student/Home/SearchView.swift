@@ -3,9 +3,10 @@ import SwiftUI
 struct SearchView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: SearchViewModel?
+    @State private var quickAdd: QuickAddHelper?
     @State private var query = ""
     @State private var showFilters = false
-    
+
     var body: some View {
         Group {
             if let viewModel {
@@ -19,8 +20,12 @@ struct SearchView: View {
             if viewModel == nil {
                 viewModel = SearchViewModel(repository: appState.repository)
             }
+            if quickAdd == nil {
+                quickAdd = QuickAddHelper(repository: appState.repository.cart)
+            }
         }
         .navigationTitle("Search")
+        .toolbar(.hidden, for: .tabBar)
         .searchable(text: $query, prompt: "Search food, outlets...")
         .onChange(of: query) { _, newValue in
             viewModel?.updateQuery(newValue)
@@ -42,6 +47,39 @@ struct SearchView: View {
                 set: { viewModel?.updateFilter($0) }
             ))
         }
+        .navigationDestination(item: detailBinding) { item in
+            FoodDetailView(foodId: item.id, outletId: item.outletId)
+        }
+        .alert("Different Outlet", isPresented: conflictBinding) {
+            Button("Clear & Add", role: .destructive) {
+                quickAdd?.confirmConflictAdd()
+            }
+            Button("Keep Cart", role: .cancel) {
+                quickAdd?.dismissConflict()
+            }
+        } message: {
+            Text("Your cart contains items from a different outlet. Clear cart and add from this outlet?")
+        }
+        .overlay(alignment: .bottom) {
+            if let message = quickAdd?.toastMessage {
+                GagToast(message: message)
+                    .padding(.bottom, 90)
+            }
+        }
+    }
+
+    private var detailBinding: Binding<FoodItem?> {
+        Binding(
+            get: { quickAdd?.detailItem },
+            set: { quickAdd?.detailItem = $0 }
+        )
+    }
+
+    private var conflictBinding: Binding<Bool> {
+        Binding(
+            get: { quickAdd?.conflictItem != nil },
+            set: { if !$0 { quickAdd?.dismissConflict() } }
+        )
     }
     
     @ViewBuilder
@@ -67,11 +105,16 @@ struct SearchView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: GagShapes.spacingM) {
+                        if let addError = quickAdd?.errorMessage {
+                            Text(addError)
+                                .font(GagTypography.labelMedium)
+                                .foregroundStyle(GagColors.error)
+                        }
                         ForEach(items) { item in
                             NavigationLink {
                                 FoodDetailView(foodId: item.id, outletId: item.outletId)
                             } label: {
-                                FoodItemCard(item: item)
+                                FoodItemCard(item: item, onAddToCart: { quickAdd?.quickAdd(item) })
                             }
                             .buttonStyle(.plain)
                         }

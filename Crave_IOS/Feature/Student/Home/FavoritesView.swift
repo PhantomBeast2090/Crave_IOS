@@ -7,6 +7,7 @@ struct FavoritesView: View {
     @State private var favorites: [FoodItem] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var quickAdd: QuickAddHelper?
 
     var body: some View {
         Group {
@@ -26,11 +27,16 @@ struct FavoritesView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: GagShapes.spacingM) {
+                        if let addError = quickAdd?.errorMessage {
+                            Text(addError)
+                                .font(GagTypography.labelMedium)
+                                .foregroundStyle(GagColors.error)
+                        }
                         ForEach(favorites) { item in
                             NavigationLink {
                                 FoodDetailView(foodId: item.id, outletId: item.outletId)
                             } label: {
-                                FoodItemCard(item: item)
+                                FoodItemCard(item: item, onAddToCart: { quickAdd?.quickAdd(item) })
                             }
                             .buttonStyle(.plain)
                         }
@@ -39,11 +45,47 @@ struct FavoritesView: View {
                 }
             }
         }
-        .navigationTitle("Favourites")
+        .navigationTitle("Favorites")
         .task {
+            if quickAdd == nil {
+                quickAdd = QuickAddHelper(repository: appState.repository.cart)
+            }
             await loadFavorites()
         }
         .refreshable { await loadFavorites() }
+        .navigationDestination(item: detailBinding) { item in
+            FoodDetailView(foodId: item.id, outletId: item.outletId)
+        }
+        .alert("Different Outlet", isPresented: conflictBinding) {
+            Button("Clear & Add", role: .destructive) {
+                quickAdd?.confirmConflictAdd()
+            }
+            Button("Keep Cart", role: .cancel) {
+                quickAdd?.dismissConflict()
+            }
+        } message: {
+            Text("Your cart contains items from a different outlet. Clear cart and add from this outlet?")
+        }
+        .overlay(alignment: .bottom) {
+            if let message = quickAdd?.toastMessage {
+                GagToast(message: message)
+                    .padding(.bottom, 90)
+            }
+        }
+    }
+
+    private var detailBinding: Binding<FoodItem?> {
+        Binding(
+            get: { quickAdd?.detailItem },
+            set: { quickAdd?.detailItem = $0 }
+        )
+    }
+
+    private var conflictBinding: Binding<Bool> {
+        Binding(
+            get: { quickAdd?.conflictItem != nil },
+            set: { if !$0 { quickAdd?.dismissConflict() } }
+        )
     }
 
     private func loadFavorites() async {

@@ -69,6 +69,25 @@ struct FoodDetailView: View {
         .background(AppTheme.screenBackground)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        // Pushed detail screens hide the floating tab bar: besides matching
+        // Android (no bottom nav on detail), this keeps the tab bar's hit
+        // region from swallowing taps on the bottom action bar.
+        .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            // Cart must stay reachable from pushed screens (the tab bar is
+            // hidden here), otherwise users can only reach it via Home.
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    CartView()
+                } label: {
+                    Image(systemName: "cart")
+                        .font(.system(size: 20))
+                        .foregroundStyle(GagColors.onSurface)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("detailCartButton")
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if case .loaded(let item) = viewModel.state {
                 bottomBar(item: item)
@@ -124,9 +143,13 @@ struct FoodDetailView: View {
 
     private func canAddToCart(_ item: FoodItem) -> Bool {
         guard item.isAvailable else { return false }
-        return item.customizations.allSatisfy { variant in
-            !variant.isRequired || !(selectedOptions[variant.id] ?? []).isEmpty
-        }
+        return missingRequiredNames(item).isEmpty
+    }
+
+    private func missingRequiredNames(_ item: FoodItem) -> [String] {
+        item.customizations
+            .filter { $0.isRequired && (selectedOptions[$0.id] ?? []).isEmpty }
+            .map { $0.name }
     }
 
     private func computedPrice(_ item: FoodItem) -> Double {
@@ -200,7 +223,12 @@ struct FoodDetailView: View {
                 customizations: pending.customizations,
                 specialInstructions: pending.specialInstructions
             )
-            navigateToCart = true
+            // Same post-add behavior as the direct path: toast, then Cart.
+            withAnimation { showAddedToCart = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                withAnimation { showAddedToCart = false }
+                navigateToCart = true
+            }
         } catch is CancellationError {
         } catch {
             addError = error.localizedDescription
@@ -340,42 +368,49 @@ struct FoodDetailView: View {
                 Text(addError)
                     .font(GagTypography.labelMedium)
                     .foregroundStyle(GagColors.error)
+            } else if item.isAvailable, !canAddToCart(item) {
+                // Explain exactly what is still missing (Android parity:
+                // the button stays disabled until required groups are filled).
+                Text("Select Required: \(missingRequiredNames(item).joined(separator: ", "))")
+                    .font(GagTypography.labelMedium)
+                    .foregroundStyle(GagColors.amber)
             }
-            VStack(spacing: 0) {
+            VStack(spacing: GagShapes.spacingS) {
                 Divider()
 
-                HStack(spacing: GagShapes.spacingL) {
-                    Stepper(value: $quantity, in: 1...CartMath.maxQuantity) {
-                        HStack {
-                            Text("Qty")
-                                .font(GagTypography.labelLarge)
-                                .foregroundStyle(GagColors.onSurfaceVariant)
-                            Text("\(quantity)")
-                                .font(GagTypography.titleMedium)
-                                .foregroundStyle(GagColors.onSurface)
+                // Row 1: quantity + single-line total (never wraps).
+                HStack {
+                    HStack(spacing: GagShapes.spacingS) {
+                        Text("Qty")
+                            .font(GagTypography.labelLarge)
+                            .foregroundStyle(GagColors.onSurfaceVariant)
+                        QuantitySelector(quantity: quantity, min: 1, max: CartMath.maxQuantity) {
+                            quantity = $0
                         }
                     }
-                    .frame(width: 120)
 
-                    Spacer()
+                    Spacer(minLength: GagShapes.spacingM)
 
                     let total = computedPrice(item) * Double(quantity)
                     Text(Formatters.price(total))
-                        .font(GagTypography.titleLarge)
+                        .font(GagTypography.titleMedium)
                         .foregroundStyle(GagColors.onSurface)
-
-                    GagButton(
-                        title: "Add to Cart",
-                        isLoading: isAdding,
-                        isEnabled: canAddToCart(item),
-                        action: { addToCart(item) }
-                    )
-                    .frame(width: 160)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
-                .padding(.horizontal, GagShapes.spacingL)
-                .padding(.vertical, GagShapes.spacingM)
-                .background(GagColors.surface)
+
+                // Row 2: full-width action (largest touch target, no crowding).
+                GagButton(
+                    title: "Add to Cart",
+                    isLoading: isAdding,
+                    isEnabled: canAddToCart(item),
+                    accessibilityIdentifier: "addToCartButton",
+                    action: { addToCart(item) }
+                )
             }
+            .padding(.horizontal, GagShapes.spacingL)
+            .padding(.vertical, GagShapes.spacingM)
+            .background(GagColors.surface)
         }
     }
 
@@ -393,6 +428,7 @@ struct FoodDetailView: View {
         .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
         .shadow(radius: 10)
         .padding(.bottom, 100)
+        .accessibilityIdentifier("addedToCartToast")
     }
 }
 
@@ -478,5 +514,6 @@ struct OptionChip: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("optionChip")
     }
 }

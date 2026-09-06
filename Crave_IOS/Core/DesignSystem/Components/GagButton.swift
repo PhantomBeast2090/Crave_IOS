@@ -31,6 +31,8 @@ struct GagButton: View {
     var style: Style = .primary
     var isLoading = false
     var isEnabled = true
+    /// UI-test hook. Nil by default — never affects production behavior.
+    var accessibilityIdentifier: String? = nil
     let action: () -> Void
 
     var body: some View {
@@ -51,8 +53,22 @@ struct GagButton: View {
             .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
         }
         .buttonStyle(.plain)
+        .modifier(AccessibilityIdentifierModifier(id: accessibilityIdentifier))
         .opacity((isEnabled && !isLoading) ? 1 : 0.5)
         .disabled(!isEnabled || isLoading)
+    }
+}
+
+/// Applies an accessibility identifier only when one is provided, so default
+/// label-derived accessibility is never disturbed.
+struct AccessibilityIdentifierModifier: ViewModifier {
+    let id: String?
+    func body(content: Content) -> some View {
+        if let id {
+            content.accessibilityIdentifier(id)
+        } else {
+            content
+        }
     }
 }
 
