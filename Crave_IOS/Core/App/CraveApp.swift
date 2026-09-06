@@ -7,6 +7,7 @@ struct CraveApp: App {
     @State private var appState = AppState()
 
     init() {
+        setenv("OS_ACTIVITY_MODE", "disable", 1)
         do {
             modelContainer = try ModelContainer(
                 for: CachedOutlet.self, CachedFoodItem.self, CartItemEntity.self, OrderEntity.self,

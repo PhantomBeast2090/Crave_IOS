@@ -27,9 +27,18 @@ final class FoodDetailViewModel {
         do {
             let item = try await repository.food.getFoodById(foodId)
             state = .loaded(item)
+        } catch is CancellationError {
+            // Task was cancelled (e.g. view re-rendered mid-load).
+            // Reset so a retry can run; never surface this as an error.
+            state = .idle
         } catch {
             state = .error(message: error.localizedDescription)
         }
+    }
+    
+    func refresh() async {
+        state = .idle
+        await load()
     }
     
     func toggleFavorite() async {

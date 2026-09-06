@@ -2,7 +2,8 @@ import Foundation
 import SwiftData
 
 /// SwiftData-backed OutletLocalCache
-actor SwiftDataOutletCache: OutletLocalCache {
+@MainActor
+final class SwiftDataOutletCache: OutletLocalCache {
     private let modelContainer: ModelContainer
     
     init(modelContainer: ModelContainer) {
@@ -61,7 +62,8 @@ actor SwiftDataOutletCache: OutletLocalCache {
 }
 
 /// SwiftData-backed FoodLocalCache
-actor SwiftDataFoodCache: FoodLocalCache {
+@MainActor
+final class SwiftDataFoodCache: FoodLocalCache {
     private let modelContainer: ModelContainer
     
     init(modelContainer: ModelContainer) {

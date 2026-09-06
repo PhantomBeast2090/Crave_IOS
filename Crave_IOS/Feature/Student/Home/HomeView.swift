@@ -10,9 +10,12 @@ struct HomeView: View {
                 content(viewModel: viewModel)
             } else {
                 GagLoadingView(message: "Loading…")
-                    .task { await setupViewModel() }
             }
         }
+        // NOTE: `.task` lives on the outer Group (not the else-branch) so that
+        // assigning `viewModel` — which swaps the branch — doesn't cancel the
+        // in-flight load with a CancellationError.
+        .task { await setupViewModel() }
         .navigationTitle("Home")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -26,6 +29,7 @@ struct HomeView: View {
     }
     
     private func setupViewModel() async {
+        guard viewModel == nil else { return }
         let vm = HomeViewModel(repository: appState.repository)
         self.viewModel = vm
         await vm.load()

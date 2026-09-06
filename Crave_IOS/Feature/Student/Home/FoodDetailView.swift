@@ -15,12 +15,16 @@ struct FoodDetailView: View {
                 content(viewModel: viewModel)
             } else {
                 GagLoadingView(message: "Loading…")
-                    .task { await setupViewModel() }
             }
         }
+        // NOTE: `.task` lives on the outer Group (not the else-branch) so that
+        // assigning `viewModel` — which swaps the branch — doesn't cancel the
+        // in-flight load with a CancellationError.
+        .task { await setupViewModel() }
     }
     
     private func setupViewModel() async {
+        guard viewModel == nil else { return }
         let vm = FoodDetailViewModel(foodId: foodId, repository: appState.repository)
         self.viewModel = vm
         await vm.load()
@@ -42,7 +46,7 @@ struct FoodDetailView: View {
                     
                 case .error(let message):
                     GagErrorView(message: message) {
-                        Task { await viewModel.load() }
+                        Task { await viewModel.refresh() }
                     }
                     .frame(height: 300)
                 }

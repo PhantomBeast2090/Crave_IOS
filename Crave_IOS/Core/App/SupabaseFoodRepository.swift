@@ -8,8 +8,10 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
     private let auth: AuthClient
     private let localCache: FoodLocalCache
     
-    // Column selection string matching Android exactly
-    private let foodColumns = "*, outlets(name), categories(name, emoji, image_url), food_variants(*, food_variant_options(*))"
+    // Column selection with PostgREST aliases so embedded objects decode
+    // under stable keys (`outlet`, `category`, `variants`, `options`)
+    // regardless of the underlying table names.
+    private let foodColumns = "*, outlet:outlets(name), category:categories(name, emoji, image_url), variants:food_variants(*, options:food_variant_options(*))"
     
     init(client: SupabaseClient, auth: AuthClient, localCache: FoodLocalCache) {
         self.client = client
@@ -31,10 +33,16 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
             pAvailableOnly: filter.availableOnly
         )
         
-        let dtos: [FoodItemDto] = try await client
-            .rpc("search_food", params: params)
-            .execute()
-            .value
+        let dtos: [FoodItemDto]
+        do {
+            dtos = try await client
+                .rpc("search_food", params: params)
+                .execute()
+                .value
+        } catch {
+            print("❌ [SupabaseFoodRepo] search_food decode/fetch failed: \(describeDecodingError(error))")
+            throw AppError.message("Couldn't search food: \(describeDecodingError(error))")
+        }
         
         print("✅ [SupabaseFoodRepo] Retrieved \(dtos.count) food items from RPC")
         
@@ -48,13 +56,19 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
     func getFoodById(_ foodId: String) async throws -> FoodItem {
         print("🌐 [SupabaseFoodRepo] Fetching food \(foodId) with full variants...")
         
-        let dto: FoodItemDto = try await client
-            .from("food_items")
-            .select(foodColumns)
-            .eq("id", value: foodId)
-            .single()
-            .execute()
-            .value
+        let dto: FoodItemDto
+        do {
+            dto = try await client
+                .from("food_items")
+                .select(foodColumns)
+                .eq("id", value: foodId)
+                .single()
+                .execute()
+                .value
+        } catch {
+            print("❌ [SupabaseFoodRepo] Food \(foodId) decode/fetch failed: \(describeDecodingError(error))")
+            throw AppError.message("Couldn't load food item: \(describeDecodingError(error))")
+        }
         
         let favIds = try await getFavoriteIds()
         return dto.toDomain(favoriteIds: favIds)
@@ -63,12 +77,18 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
     func getMenuByOutlet(_ outletId: String) async throws -> [FoodItem] {
         print("🍽️ [SupabaseFoodRepo] Fetching menu for outlet \(outletId)...")
         
-        let dtos: [FoodItemDto] = try await client
-            .from("food_items")
-            .select(foodColumns)
-            .eq("outlet_id", value: outletId)
-            .execute()
-            .value
+        let dtos: [FoodItemDto]
+        do {
+            dtos = try await client
+                .from("food_items")
+                .select(foodColumns)
+                .eq("outlet_id", value: outletId)
+                .execute()
+                .value
+        } catch {
+            print("❌ [SupabaseFoodRepo] Menu for \(outletId) decode/fetch failed: \(describeDecodingError(error))")
+            throw AppError.message("Couldn't load menu: \(describeDecodingError(error))")
+        }
         
         print("✅ [SupabaseFoodRepo] Retrieved \(dtos.count) food items")
         
@@ -81,26 +101,38 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
     }
     
     func getPopularFood() async throws -> [FoodItem] {
-        let dtos: [FoodItemDto] = try await client
-            .from("food_items")
-            .select(foodColumns)
-            .eq("is_popular", value: true)
-            .eq("is_available", value: true)
-            .execute()
-            .value
+        let dtos: [FoodItemDto]
+        do {
+            dtos = try await client
+                .from("food_items")
+                .select(foodColumns)
+                .eq("is_popular", value: true)
+                .eq("is_available", value: true)
+                .execute()
+                .value
+        } catch {
+            print("❌ [SupabaseFoodRepo] Popular food decode/fetch failed: \(describeDecodingError(error))")
+            throw AppError.message("Couldn't load popular items: \(describeDecodingError(error))")
+        }
         
         let favIds = try await getFavoriteIds()
         return dtos.map { $0.toDomain(favoriteIds: favIds) }
     }
     
     func getRecommendedFood() async throws -> [FoodItem] {
-        let dtos: [FoodItemDto] = try await client
-            .from("food_items")
-            .select(foodColumns)
-            .eq("is_recommended", value: true)
-            .eq("is_available", value: true)
-            .execute()
-            .value
+        let dtos: [FoodItemDto]
+        do {
+            dtos = try await client
+                .from("food_items")
+                .select(foodColumns)
+                .eq("is_recommended", value: true)
+                .eq("is_available", value: true)
+                .execute()
+                .value
+        } catch {
+            print("❌ [SupabaseFoodRepo] Recommended food decode/fetch failed: \(describeDecodingError(error))")
+            throw AppError.message("Couldn't load recommended items: \(describeDecodingError(error))")
+        }
         
         let favIds = try await getFavoriteIds()
         return dtos.map { $0.toDomain(favoriteIds: favIds) }
@@ -109,12 +141,18 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
     func getAllFood() async throws -> [FoodItem] {
         print("📋 [SupabaseFoodRepo] Fetching all available food items...")
         
-        let dtos: [FoodItemDto] = try await client
-            .from("food_items")
-            .select(foodColumns)
-            .eq("is_available", value: true)
-            .execute()
-            .value
+        let dtos: [FoodItemDto]
+        do {
+            dtos = try await client
+                .from("food_items")
+                .select(foodColumns)
+                .eq("is_available", value: true)
+                .execute()
+                .value
+        } catch {
+            print("❌ [SupabaseFoodRepo] All-food decode/fetch failed: \(describeDecodingError(error))")
+            throw AppError.message("Couldn't load food items: \(describeDecodingError(error))")
+        }
         
         print("✅ [SupabaseFoodRepo] Retrieved \(dtos.count) items")
         
@@ -123,11 +161,17 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
     }
     
     func getCategories() async throws -> [FoodCategory] {
-        let dtos: [CategoryDto] = try await client
-            .from("categories")
-            .select()
-            .execute()
-            .value
+        let dtos: [CategoryDto]
+        do {
+            dtos = try await client
+                .from("categories")
+                .select()
+                .execute()
+                .value
+        } catch {
+            print("❌ [SupabaseFoodRepo] Categories decode/fetch failed: \(describeDecodingError(error))")
+            throw AppError.message("Couldn't load categories: \(describeDecodingError(error))")
+        }
         
         return dtos.map { dto in
             FoodCategory(
@@ -149,12 +193,18 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
         let favIds = try await getFavoriteIds()
         guard !favIds.isEmpty else { return [] }
         
-        let dtos: [FoodItemDto] = try await client
-            .from("food_items")
-            .select(foodColumns)
-            .in("id", values: Array(favIds))
-            .execute()
-            .value
+        let dtos: [FoodItemDto]
+        do {
+            dtos = try await client
+                .from("food_items")
+                .select(foodColumns)
+                .in("id", values: Array(favIds))
+                .execute()
+                .value
+        } catch {
+            print("❌ [SupabaseFoodRepo] Favorites sync decode/fetch failed: \(describeDecodingError(error))")
+            throw AppError.message("Couldn't sync favorites: \(describeDecodingError(error))")
+        }
         
         let domains = dtos.map { $0.toDomain(favoriteIds: favIds) }
         try await localCache.saveFoodItems(domains)
@@ -208,12 +258,18 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
         let outletIds = outletDtos.map { $0.id }
         guard !outletIds.isEmpty else { return [] }
         
-        let dtos: [FoodItemDto] = try await client
-            .from("food_items")
-            .select(foodColumns)
-            .in("outlet_id", values: outletIds)
-            .execute()
-            .value
+        let dtos: [FoodItemDto]
+        do {
+            dtos = try await client
+                .from("food_items")
+                .select(foodColumns)
+                .in("outlet_id", values: outletIds)
+                .execute()
+                .value
+        } catch {
+            print("❌ [SupabaseFoodRepo] Vendor items decode/fetch failed: \(describeDecodingError(error))")
+            throw AppError.message("Couldn't load vendor items: \(describeDecodingError(error))")
+        }
         
         return dtos.map { $0.toDomain(favoriteIds: []) }
     }
@@ -312,6 +368,7 @@ extension FoodItemDto {
 
 // MARK: - Local Cache Protocol
 
+@MainActor
 protocol FoodLocalCache: Sendable {
     func observeFavorites() -> AsyncStream<[FoodItem]>
     func saveFoodItems(_ items: [FoodItem]) async throws

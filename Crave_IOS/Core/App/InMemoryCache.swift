@@ -3,7 +3,8 @@ import Foundation
 /// In-memory cache implementation for development/testing.
 /// Replace with SwiftData/GRDB/CoreData for production persistence.
 
-actor InMemoryOutletCache: OutletLocalCache {
+@MainActor
+final class InMemoryOutletCache: OutletLocalCache {
     private var outlets: [String: Outlet] = [:]
     private var continuations: [UUID: AsyncStream<[Outlet]>.Continuation] = [:]
     
@@ -14,7 +15,9 @@ actor InMemoryOutletCache: OutletLocalCache {
             continuation.yield(Array(outlets.values))
             
             continuation.onTermination = { @Sendable _ in
-                Task { await self.removeContinuation(id) }
+                Task { @MainActor in
+                    self.removeContinuation(id)
+                }
             }
         }
     }
@@ -47,7 +50,8 @@ actor InMemoryOutletCache: OutletLocalCache {
     }
 }
 
-actor InMemoryFoodCache: FoodLocalCache {
+@MainActor
+final class InMemoryFoodCache: FoodLocalCache {
     private var foodItems: [String: FoodItem] = [:]
     private var favoriteIds: Set<String> = []
     private var continuations: [UUID: AsyncStream<[FoodItem]>.Continuation] = [:]
@@ -60,7 +64,9 @@ actor InMemoryFoodCache: FoodLocalCache {
             continuation.yield(favs)
             
             continuation.onTermination = { @Sendable _ in
-                Task { await self.removeContinuation(id) }
+                Task { @MainActor in
+                    self.removeContinuation(id)
+                }
             }
         }
     }

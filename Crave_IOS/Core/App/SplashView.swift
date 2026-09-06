@@ -41,6 +41,10 @@ struct SplashView: View {
                 logoScale = 1.0
                 logoOpacity = 1.0
             }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                await appState.launch()
+            }
         }
     }
 }

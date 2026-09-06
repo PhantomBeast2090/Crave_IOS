@@ -11,13 +11,17 @@ struct OutletDetailView: View {
                 content(viewModel: viewModel)
             } else {
                 GagLoadingView(message: "Loading outlet…")
-                    .task { await setupViewModel() }
             }
         }
-        .refreshable { await viewModel?.load() }
+        // NOTE: `.task` lives on the outer Group (not the else-branch) so that
+        // assigning `viewModel` — which swaps the branch — doesn't cancel the
+        // in-flight load with a CancellationError.
+        .task { await setupViewModel() }
+        .refreshable { await viewModel?.refresh() }
     }
     
     private func setupViewModel() async {
+        guard viewModel == nil else { return }
         let vm = OutletDetailViewModel(outletId: outletId, repository: appState.repository)
         self.viewModel = vm
         await vm.load()
@@ -38,7 +42,7 @@ struct OutletDetailView: View {
                     
                 case .error(let message):
                     GagErrorView(message: message) {
-                        Task { await viewModel.load() }
+                        Task { await viewModel.refresh() }
                     }
                     .frame(height: 300)
                 }

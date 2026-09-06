@@ -28,6 +28,10 @@ final class HomeViewModel {
             
             let (outletsResult, categoriesResult) = try await (outlets, categories)
             state = .loaded(outlets: outletsResult, categories: categoriesResult)
+        } catch is CancellationError {
+            // Task was cancelled (e.g. view re-rendered mid-load).
+            // Reset so a retry can run; never surface this as an error.
+            state = .idle
         } catch {
             state = .error(message: error.localizedDescription)
         }

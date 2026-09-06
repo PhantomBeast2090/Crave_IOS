@@ -21,12 +21,18 @@ final class SupabaseOutletRepository: OutletRepository, Sendable {
     func refreshOutlets() async throws -> [Outlet] {
         print("🔄 [SupabaseOutletRepo] Refreshing outlets from Supabase...")
         
-        let dtos: [OutletDto] = try await client
-            .from("outlets")
-            .select()
-            .eq("is_active", value: true)
-            .execute()
-            .value
+        let dtos: [OutletDto]
+        do {
+            dtos = try await client
+                .from("outlets")
+                .select()
+                .eq("is_active", value: true)
+                .execute()
+                .value
+        } catch {
+            print("❌ [SupabaseOutletRepo] Outlets decode/fetch failed: \(describeDecodingError(error))")
+            throw AppError.message("Couldn't load outlets: \(describeDecodingError(error))")
+        }
         
         print("✅ [SupabaseOutletRepo] Retrieved \(dtos.count) outlets")
         
@@ -45,13 +51,19 @@ final class SupabaseOutletRepository: OutletRepository, Sendable {
         
         print("🌐 [SupabaseOutletRepo] Fetching outlet \(outletId) from Supabase...")
         
-        let dto: OutletDto = try await client
-            .from("outlets")
-            .select()
-            .eq("id", value: outletId)
-            .single()
-            .execute()
-            .value
+        let dto: OutletDto
+        do {
+            dto = try await client
+                .from("outlets")
+                .select()
+                .eq("id", value: outletId)
+                .single()
+                .execute()
+                .value
+        } catch {
+            print("❌ [SupabaseOutletRepo] Outlet \(outletId) decode/fetch failed: \(describeDecodingError(error))")
+            throw AppError.message("Couldn't load outlet: \(describeDecodingError(error))")
+        }
         
         let outlet = dto.toDomain()
         try await localCache.saveOutlet(outlet)
@@ -62,12 +74,18 @@ final class SupabaseOutletRepository: OutletRepository, Sendable {
     func getNearbyOutlets(lat: Double, lng: Double) async throws -> [Outlet] {
         // Note: PostGIS distance query not implemented yet.
         // Android falls back to fetching all active outlets.
-        let dtos: [OutletDto] = try await client
-            .from("outlets")
-            .select()
-            .eq("is_active", value: true)
-            .execute()
-            .value
+        let dtos: [OutletDto]
+        do {
+            dtos = try await client
+                .from("outlets")
+                .select()
+                .eq("is_active", value: true)
+                .execute()
+                .value
+        } catch {
+            print("❌ [SupabaseOutletRepo] Nearby outlets decode/fetch failed: \(describeDecodingError(error))")
+            throw AppError.message("Couldn't load nearby outlets: \(describeDecodingError(error))")
+        }
         
         return dtos.map { $0.toDomain() }
     }
@@ -111,6 +129,7 @@ extension OutletDto {
 
 // MARK: - Local Cache Protocol (protocol for testability)
 
+@MainActor
 protocol OutletLocalCache: Sendable {
     func observeOutlets() -> AsyncStream<[Outlet]>
     func getOutletById(_ id: String) async -> Outlet?
