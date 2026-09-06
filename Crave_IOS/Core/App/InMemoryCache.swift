@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 /// In-memory cache implementation for development/testing.
 /// Replace with SwiftData/GRDB/CoreData for production persistence.
@@ -99,5 +100,47 @@ final class InMemoryFoodCache: FoodLocalCache {
             favoriteIds.remove(foodItemId)
         }
         notifyFavorites()
+    }
+}
+
+@MainActor
+final class InMemoryCartStore: CartLocalStore {
+    private var items: [String: CartItemEntity] = [:]
+    private var continuations: [UUID: AsyncStream<[CartItemEntity]>.Continuation] = [:]
+
+    func loadAll() async -> [CartItemEntity] {
+        items.values.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    func upsert(_ item: CartItemEntity) async throws {
+        items[item.id] = item
+    }
+
+    func delete(id: String) async throws {
+        items.removeValue(forKey: id)
+    }
+
+    func clear() async throws {
+        items.removeAll()
+    }
+
+    func observe() -> AsyncStream<[CartItemEntity]> {
+        AsyncStream { continuation in
+            let id = UUID()
+            continuations[id] = continuation
+            Task { @MainActor in
+                continuation.yield(await self.loadAll())
+            }
+            continuation.onTermination = { @Sendable [weak self] _ in
+                Task { @MainActor in self?.continuations.removeValue(forKey: id) }
+            }
+        }
+    }
+
+    func notifyChanged() async {
+        let items = await loadAll()
+        for continuation in continuations.values {
+            continuation.yield(items)
+        }
     }
 }

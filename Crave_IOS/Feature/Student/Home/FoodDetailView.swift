@@ -6,9 +6,14 @@ struct FoodDetailView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: FoodDetailViewModel?
     @State private var quantity = 1
-    @State private var selectedOptions: [String: CustomizationOption] = [:]
+    /// variantId -> selected options (multi-select supported via maxSelections).
+    @State private var selectedOptions: [String: [CustomizationOption]] = [:]
     @State private var showAddedToCart = false
-    
+    @State private var addError: String?
+    @State private var isAdding = false
+    @State private var pendingConflictAdd: PendingCartAdd?
+    @State private var navigateToCart = false
+
     var body: some View {
         Group {
             if let viewModel {
@@ -17,19 +22,17 @@ struct FoodDetailView: View {
                 GagLoadingView(message: "Loading…")
             }
         }
-        // NOTE: `.task` lives on the outer Group (not the else-branch) so that
-        // assigning `viewModel` — which swaps the branch — doesn't cancel the
-        // in-flight load with a CancellationError.
+        // `.task` on the outer Group so branch swaps can't cancel the load.
         .task { await setupViewModel() }
     }
-    
+
     private func setupViewModel() async {
         guard viewModel == nil else { return }
         let vm = FoodDetailViewModel(foodId: foodId, repository: appState.repository)
         self.viewModel = vm
         await vm.load()
     }
-    
+
     @ViewBuilder
     private func content(viewModel: FoodDetailViewModel) -> some View {
         ScrollView {
@@ -38,12 +41,22 @@ struct FoodDetailView: View {
                 case .idle, .loading:
                     GagLoadingView(message: "Loading…")
                         .frame(height: 300)
-                    
+
                 case .loaded(let item):
-                    foodImage(item)
+                    foodImage(item, viewModel: viewModel)
                     foodInfo(item)
+                    if !item.isAvailable {
+                        Text("Currently Unavailable")
+                            .font(GagTypography.labelLarge)
+                            .foregroundStyle(GagColors.error)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, GagShapes.spacingM)
+                            .background(GagColors.error.opacity(0.12))
+                            .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
+                            .padding(.horizontal, GagShapes.spacingL)
+                    }
                     customizationsSection(item)
-                    
+
                 case .error(let message):
                     GagErrorView(message: message) {
                         Task { await viewModel.refresh() }
@@ -67,9 +80,136 @@ struct FoodDetailView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .navigationDestination(isPresented: $navigateToCart) {
+            CartView()
+        }
+        .alert("Different Outlet", isPresented: Binding(
+            get: { pendingConflictAdd != nil },
+            set: { if !$0 { pendingConflictAdd = nil } }
+        )) {
+            Button("Clear & Add", role: .destructive) {
+                Task { await confirmConflictAdd() }
+            }
+            Button("Keep Cart", role: .cancel) {
+                pendingConflictAdd = nil
+            }
+        } message: {
+            Text("Your cart contains items from a different outlet. Clear cart and add from this outlet?")
+        }
     }
-    
-    private func foodImage(_ item: FoodItem) -> some View {
+
+    // MARK: - Customization logic (mirrors Android FoodDetailViewModel)
+
+    private func selected(for variantId: String) -> [CustomizationOption] {
+        selectedOptions[variantId] ?? []
+    }
+
+    private func toggleOption(variant: FoodCustomization, option: CustomizationOption) {
+        var current = selectedOptions[variant.id] ?? []
+        if let index = current.firstIndex(where: { $0.id == option.id }) {
+            current.remove(at: index)
+        } else if variant.maxSelections <= 1 {
+            current = [option]
+        } else if current.count < variant.maxSelections {
+            current.append(option)
+        } else {
+            return // cap reached — extra taps are ignored (Android parity)
+        }
+        if current.isEmpty {
+            selectedOptions.removeValue(forKey: variant.id)
+        } else {
+            selectedOptions[variant.id] = current
+        }
+    }
+
+    private func canAddToCart(_ item: FoodItem) -> Bool {
+        guard item.isAvailable else { return false }
+        return item.customizations.allSatisfy { variant in
+            !variant.isRequired || !(selectedOptions[variant.id] ?? []).isEmpty
+        }
+    }
+
+    private func computedPrice(_ item: FoodItem) -> Double {
+        let extras = selectedOptions.values.flatMap { $0 }.reduce(0) { $0 + $1.extraPrice }
+        return item.price + extras
+    }
+
+    private func selectedCustomizations(_ item: FoodItem) -> [SelectedCustomization] {
+        item.customizations.flatMap { variant in
+            (selectedOptions[variant.id] ?? []).map { option in
+                SelectedCustomization(
+                    customizationId: variant.id,
+                    customizationName: variant.name,
+                    optionId: option.id,
+                    optionName: option.name,
+                    extraPrice: option.extraPrice
+                )
+            }
+        }
+    }
+
+    // MARK: - Add to cart
+
+    private func addToCart(_ item: FoodItem) {
+        guard canAddToCart(item), !isAdding else { return }
+        isAdding = true
+        addError = nil
+        Task {
+            defer { isAdding = false }
+            do {
+                _ = try await appState.repository.cart.addItem(
+                    foodItem: item,
+                    outletName: item.outletName,
+                    quantity: quantity,
+                    customizations: selectedCustomizations(item),
+                    specialInstructions: nil
+                )
+                withAnimation { showAddedToCart = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                    withAnimation { showAddedToCart = false }
+                    navigateToCart = true
+                }
+            } catch let cartError as CartError {
+                if case .outletConflict = cartError {
+                    pendingConflictAdd = PendingCartAdd(
+                        foodItem: item,
+                        outletName: item.outletName,
+                        quantity: quantity,
+                        customizations: selectedCustomizations(item),
+                        specialInstructions: nil
+                    )
+                } else {
+                    addError = cartError.localizedDescription
+                }
+            } catch is CancellationError {
+            } catch {
+                addError = error.localizedDescription
+            }
+        }
+    }
+
+    private func confirmConflictAdd() async {
+        guard let pending = pendingConflictAdd else { return }
+        pendingConflictAdd = nil
+        do {
+            try await appState.repository.cart.clearCart()
+            _ = try await appState.repository.cart.addItem(
+                foodItem: pending.foodItem,
+                outletName: pending.outletName,
+                quantity: pending.quantity,
+                customizations: pending.customizations,
+                specialInstructions: pending.specialInstructions
+            )
+            navigateToCart = true
+        } catch is CancellationError {
+        } catch {
+            addError = error.localizedDescription
+        }
+    }
+
+    // MARK: - Sections
+
+    private func foodImage(_ item: FoodItem, viewModel: FoodDetailViewModel) -> some View {
         ZStack(alignment: .topTrailing) {
             Group {
                 if let urlString = item.imageUrl, let url = URL(string: urlString) {
@@ -87,9 +227,9 @@ struct FoodDetailView: View {
             }
             .frame(height: 240)
             .clipped()
-            
+
             Button {
-                Task { await self.viewModel?.toggleFavorite() }
+                Task { await viewModel.toggleFavorite() }
             } label: {
                 Image(systemName: item.isFavorite ? "heart.fill" : "heart")
                     .font(.system(size: 20))
@@ -101,7 +241,7 @@ struct FoodDetailView: View {
             }
         }
     }
-    
+
     private var imagePlaceholder: some View {
         ZStack {
             GagColors.surfaceVariant
@@ -110,7 +250,7 @@ struct FoodDetailView: View {
                 .foregroundStyle(GagColors.onSurfaceDim)
         }
     }
-    
+
     private func foodInfo(_ item: FoodItem) -> some View {
         VStack(alignment: .leading, spacing: GagShapes.spacingM) {
             HStack(alignment: .top) {
@@ -121,42 +261,44 @@ struct FoodDetailView: View {
                             .font(GagTypography.titleLarge)
                             .foregroundStyle(GagColors.onSurface)
                     }
-                    
+
                     Text(item.outletName)
                         .font(GagTypography.bodyMedium)
                         .foregroundStyle(GagColors.brandOrange)
                 }
-                
+
                 Spacer()
-                
+
                 Text(Formatters.price(item.price))
                     .font(GagTypography.titleMedium)
                     .foregroundStyle(GagColors.onSurface)
             }
             .padding(.horizontal, GagShapes.spacingL)
-            
+
             if !item.description.isEmpty {
                 Text(item.description)
                     .font(GagTypography.bodyMedium)
                     .foregroundStyle(GagColors.onSurfaceVariant)
                     .padding(.horizontal, GagShapes.spacingL)
             }
-            
+
             HStack(spacing: GagShapes.spacingL) {
                 Label("\(item.prepTimeMinutes) min", systemImage: "clock")
                 if item.rating > 0 {
                     Label(String(format: "%.1f", item.rating), systemImage: "star.fill")
                         .foregroundStyle(GagColors.amber)
                 }
-                Label(item.category, systemImage: "tag")
+                if !item.category.isEmpty {
+                    Label(item.category, systemImage: "tag")
+                }
             }
             .font(GagTypography.labelMedium)
             .foregroundStyle(GagColors.onSurfaceVariant)
             .padding(.horizontal, GagShapes.spacingL)
-            
+
             Divider()
                 .padding(.horizontal, GagShapes.spacingL)
-            
+
             if !item.ingredients.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Ingredients")
@@ -168,75 +310,75 @@ struct FoodDetailView: View {
                 }
                 .padding(.horizontal, GagShapes.spacingL)
             }
+
+            if let calories = item.calories {
+                Text("~\(calories) cal")
+                    .font(GagTypography.labelSmall)
+                    .foregroundStyle(GagColors.onSurfaceVariant)
+                    .padding(.horizontal, GagShapes.spacingL)
+            }
         }
     }
-    
+
     private func customizationsSection(_ item: FoodItem) -> some View {
         VStack(alignment: .leading, spacing: GagShapes.spacingM) {
             if !item.customizations.isEmpty {
-                Text("Customizations")
-                    .font(GagTypography.titleMedium)
-                    .foregroundStyle(GagColors.onSurface)
-                    .padding(.horizontal, GagShapes.spacingL)
-                
                 ForEach(item.customizations) { customization in
                     CustomizationView(
                         customization: customization,
-                        selectedOption: Binding(
-                            get: { selectedOptions[customization.id] },
-                            set: { selectedOptions[customization.id] = $0 }
-                        )
+                        selected: selected(for: customization.id),
+                        onToggle: { toggleOption(variant: customization, option: $0) }
                     )
                 }
             }
         }
     }
-    
+
     private func bottomBar(item: FoodItem) -> some View {
-        VStack(spacing: 0) {
-            Divider()
-            
-            HStack(spacing: GagShapes.spacingL) {
-                Stepper(value: $quantity, in: 1...20) {
-                    HStack {
-                        Text("Qty")
-                            .font(GagTypography.labelLarge)
-                            .foregroundStyle(GagColors.onSurfaceVariant)
-                        Text("\(quantity)")
-                            .font(GagTypography.titleMedium)
-                            .foregroundStyle(GagColors.onSurface)
-                    }
-                }
-                .frame(width: 120)
-                
-                Spacer()
-                
-                let total = item.price * Double(quantity)
-                Text(Formatters.price(total))
-                    .font(GagTypography.titleLarge)
-                    .foregroundStyle(GagColors.onSurface)
-                
-                GagButton(
-                    title: item.isAvailable ? "Add to Cart" : "Unavailable",
-                    isEnabled: item.isAvailable,
-                    action: addToCart
-                )
-                .frame(width: 160)
+        VStack(spacing: GagShapes.spacingS) {
+            if let addError {
+                Text(addError)
+                    .font(GagTypography.labelMedium)
+                    .foregroundStyle(GagColors.error)
             }
-            .padding(.horizontal, GagShapes.spacingL)
-            .padding(.vertical, GagShapes.spacingM)
-            .background(GagColors.surface)
+            VStack(spacing: 0) {
+                Divider()
+
+                HStack(spacing: GagShapes.spacingL) {
+                    Stepper(value: $quantity, in: 1...CartMath.maxQuantity) {
+                        HStack {
+                            Text("Qty")
+                                .font(GagTypography.labelLarge)
+                                .foregroundStyle(GagColors.onSurfaceVariant)
+                            Text("\(quantity)")
+                                .font(GagTypography.titleMedium)
+                                .foregroundStyle(GagColors.onSurface)
+                        }
+                    }
+                    .frame(width: 120)
+
+                    Spacer()
+
+                    let total = computedPrice(item) * Double(quantity)
+                    Text(Formatters.price(total))
+                        .font(GagTypography.titleLarge)
+                        .foregroundStyle(GagColors.onSurface)
+
+                    GagButton(
+                        title: "Add to Cart",
+                        isLoading: isAdding,
+                        isEnabled: canAddToCart(item),
+                        action: { addToCart(item) }
+                    )
+                    .frame(width: 160)
+                }
+                .padding(.horizontal, GagShapes.spacingL)
+                .padding(.vertical, GagShapes.spacingM)
+                .background(GagColors.surface)
+            }
         }
     }
-    
-    private func addToCart() {
-        // Add to cart logic will be implemented with CartViewModel
-        withAnimation { showAddedToCart = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation { showAddedToCart = false }
-        }
-    }
-    
+
     private var addedToCartToast: some View {
         HStack {
             Image(systemName: "checkmark.circle.fill")
@@ -256,8 +398,9 @@ struct FoodDetailView: View {
 
 struct CustomizationView: View {
     let customization: FoodCustomization
-    @Binding var selectedOption: CustomizationOption?
-    
+    let selected: [CustomizationOption]
+    let onToggle: (CustomizationOption) -> Void
+
     var body: some View {
         VStack(alignment: .leading, spacing: GagShapes.spacingS) {
             HStack {
@@ -275,13 +418,21 @@ struct CustomizationView: View {
                 }
             }
             .padding(.horizontal, GagShapes.spacingL)
-            
+
+            if customization.maxSelections > 1 {
+                Text("Select up to \(customization.maxSelections)")
+                    .font(GagTypography.labelSmall)
+                    .foregroundStyle(GagColors.onSurfaceVariant)
+                    .padding(.horizontal, GagShapes.spacingL)
+            }
+
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: GagShapes.spacingS) {
                 ForEach(customization.options) { option in
                     OptionChip(
                         option: option,
-                        isSelected: selectedOption?.id == option.id,
-                        action: { selectedOption = option }
+                        isSelected: selected.contains(where: { $0.id == option.id }),
+                        isSingleSelect: customization.maxSelections <= 1,
+                        action: { onToggle(option) }
                     )
                 }
             }
@@ -293,23 +444,33 @@ struct CustomizationView: View {
 struct OptionChip: View {
     let option: CustomizationOption
     let isSelected: Bool
+    let isSingleSelect: Bool
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             HStack {
-                Text(option.name)
-                    .font(GagTypography.labelMedium)
-                    .foregroundStyle(isSelected ? .white : GagColors.onSurface)
-                if option.extraPrice > 0 {
-                    Text("+\(Formatters.price(option.extraPrice))")
-                        .font(GagTypography.labelSmall)
-                        .foregroundStyle(isSelected ? .white.opacity(0.8) : GagColors.brandOrange)
+                Image(systemName: isSingleSelect
+                    ? (isSelected ? "largecircle.fill.circle" : "circle")
+                    : (isSelected ? "checkmark.square.fill" : "square"))
+                    .font(.system(size: 16))
+                    .foregroundStyle(isSelected ? GagColors.brandOrange : GagColors.onSurfaceDim)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(option.name)
+                        .font(GagTypography.labelMedium)
+                        .foregroundStyle(GagColors.onSurface)
+                    if option.extraPrice > 0 {
+                        Text("+\(Formatters.price(option.extraPrice))")
+                            .font(GagTypography.labelSmall)
+                            .foregroundStyle(GagColors.brandOrange)
+                    }
                 }
+                Spacer()
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, GagShapes.spacingM)
-            .background(isSelected ? GagColors.brandOrange : GagColors.surfaceVariant)
+            .padding(.horizontal, GagShapes.spacingM)
+            .background(isSelected ? GagColors.brandOrange.opacity(0.12) : GagColors.surfaceVariant)
             .clipShape(GagShapes.cornerRadius(GagShapes.radiusMedium))
             .overlay(
                 GagShapes.cornerRadius(GagShapes.radiusMedium)

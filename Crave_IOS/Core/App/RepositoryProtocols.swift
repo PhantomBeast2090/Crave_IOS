@@ -8,6 +8,9 @@ protocol OutletRepository: Sendable {
     
     /// Refresh outlets from Supabase (student-facing: is_active = true)
     func refreshOutlets() async throws -> [Outlet]
+
+    /// Refresh ALL outlets including inactive (admin management).
+    func refreshAllOutlets() async throws -> [Outlet]
     
     /// Get a single outlet by ID (checks cache first, then network)
     func getOutletById(_ outletId: String) async throws -> Outlet
@@ -73,4 +76,9 @@ protocol FoodRepository: Sendable {
 protocol AppRepository: Sendable {
     var outlets: OutletRepository { get }
     var food: FoodRepository { get }
+    var cart: CartRepository { get }
+    var orders: OrderRepository { get }
+    var notifications: NotificationRepository { get }
+    var payments: PaymentRepository { get }
+    var admin: AdminRepository { get }
 }

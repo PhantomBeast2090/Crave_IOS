@@ -6,11 +6,17 @@ struct FavoritesView: View {
     @Environment(AppState.self) private var appState
     @State private var favorites: [FoodItem] = []
     @State private var isLoading = true
-    
+    @State private var errorMessage: String?
+
     var body: some View {
         Group {
             if isLoading {
                 GagLoadingView(message: "Loading favorites…")
+            } else if let errorMessage {
+                GagErrorView(message: errorMessage) {
+                    Task { await loadFavorites() }
+                }
+                .padding(.horizontal, GagShapes.spacingL)
             } else if favorites.isEmpty {
                 GagEmptyView(
                     icon: "heart",
@@ -39,16 +45,18 @@ struct FavoritesView: View {
         }
         .refreshable { await loadFavorites() }
     }
-    
+
     private func loadFavorites() async {
-        isLoading = true
+        isLoading = favorites.isEmpty
+        errorMessage = nil
+        defer { isLoading = false }
         do {
             favorites = try await appState.repository.food.syncFavorites()
-            // The syncFavorites returns items, but observeFavorites is better for real-time
-            // For now, just load once
+        } catch is CancellationError {
         } catch {
-            print("Failed to load favorites: \(error)")
+            if favorites.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
-        isLoading = false
     }
 }

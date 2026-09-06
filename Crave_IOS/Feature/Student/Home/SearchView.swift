@@ -12,7 +12,12 @@ struct SearchView: View {
                 content(viewModel: viewModel)
             } else {
                 GagLoadingView(message: "Loading…")
-                    .task { viewModel = SearchViewModel(repository: appState.repository) }
+            }
+        }
+        // `.task` on the outer Group so branch swaps can't cancel setup.
+        .task {
+            if viewModel == nil {
+                viewModel = SearchViewModel(repository: appState.repository)
             }
         }
         .navigationTitle("Search")

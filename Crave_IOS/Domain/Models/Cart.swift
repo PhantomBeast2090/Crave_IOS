@@ -33,7 +33,7 @@ nonisolated struct CartItem: Sendable, Hashable, Identifiable {
     }
 }
 
-nonisolated struct SelectedCustomization: Sendable, Hashable, Identifiable {
+nonisolated struct SelectedCustomization: Sendable, Hashable, Identifiable, Codable {
     let customizationId: String
     let customizationName: String
     let optionId: String

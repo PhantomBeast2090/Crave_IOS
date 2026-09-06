@@ -19,10 +19,9 @@ nonisolated struct SupabaseAuthService: AuthService {
     private let auth: AuthClient
 
     init() {
-        self.client = SupabaseClient(
-            supabaseURL: AppConfig.supabaseURL,
-            supabaseKey: AppConfig.supabaseAnonKey
-        )
+        // Shared client — never construct a second SupabaseClient, or the
+        // auth session (and Realtime auth) will diverge.
+        self.client = SupabaseClientProvider.shared
         self.auth = client.auth
     }
 
@@ -218,6 +217,55 @@ nonisolated struct SupabaseAuthService: AuthService {
         try await auth.signOut()
     }
 
+    // MARK: - Profile
+
+    func fetchProfile() async throws -> User {
+        guard let userId = auth.currentSession?.user.id.uuidString else {
+            throw AppError.message("Not signed in.")
+        }
+        let profile: ProfileDto
+        do {
+            profile = try await client
+                .from("profiles")
+                .select()
+                .eq("id", value: userId)
+                .single()
+                .execute()
+                .value
+        } catch {
+            throw AppError.message("Couldn't load profile: \(describeDecodingError(error))")
+        }
+        return profileToUser(profile)
+    }
+
+    func updateProfile(name: String, phone: String?, registrationNumber: String?) async throws -> User {
+        guard let userId = auth.currentSession?.user.id.uuidString else {
+            throw AppError.message("Not signed in.")
+        }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw AppError.message("Name is required.")
+        }
+        struct ProfileUpdate: Encodable, Sendable {
+            let name: String
+            let phone: String?
+            let registrationNumber: String?
+            enum CodingKeys: String, CodingKey {
+                case name, phone
+                case registrationNumber = "registration_number"
+            }
+        }
+        do {
+            try await client.from("profiles")
+                .update(ProfileUpdate(name: trimmed, phone: phone, registrationNumber: registrationNumber))
+                .eq("id", value: userId)
+                .execute()
+        } catch {
+            throw AppError.message("Couldn't update profile: \(describeDecodingError(error))")
+        }
+        return try await fetchProfile()
+    }
+
     // MARK: - Helpers
 
     private func mapSessionToAuthUser(_ session: Session) -> AuthUser {
@@ -226,6 +274,13 @@ nonisolated struct SupabaseAuthService: AuthService {
             email: session.user.email ?? "",
             role: UserRole(fromString: (session.user.userMetadata["role"]?.stringValue) ?? "STUDENT")
         )
+    }
+
+    private func profileToUser(_ profile: ProfileDto) -> User {
+        User(id: profile.id, name: profile.name, email: profile.email, phone: profile.phone,
+             role: UserRole(fromString: profile.role), profileImageUrl: profile.profile_image_url,
+             registrationNumber: profile.registration_number, isActive: profile.is_active,
+             createdAt: profile.created_at)
     }
 
     private func mapAuthError(_ error: AuthError, context: String) -> AppError {

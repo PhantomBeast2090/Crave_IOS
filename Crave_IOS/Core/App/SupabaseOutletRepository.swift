@@ -41,6 +41,25 @@ final class SupabaseOutletRepository: OutletRepository, Sendable {
         
         return outlets
     }
+
+    func refreshAllOutlets() async throws -> [Outlet] {
+        print("🔄 [SupabaseOutletRepo] Refreshing ALL outlets (admin)...")
+
+        let dtos: [OutletDto]
+        do {
+            dtos = try await client
+                .from("outlets")
+                .select()
+                .execute()
+                .value
+        } catch {
+            print("❌ [SupabaseOutletRepo] All-outlets decode/fetch failed: \(describeDecodingError(error))")
+            throw AppError.message("Couldn't load outlets: \(describeDecodingError(error))")
+        }
+
+        print("✅ [SupabaseOutletRepo] Retrieved \(dtos.count) outlets (all)")
+        return dtos.map { $0.toDomain() }
+    }
     
     func getOutletById(_ outletId: String) async throws -> Outlet {
         // Check local cache first

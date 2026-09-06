@@ -3,7 +3,9 @@ import SwiftUI
 struct HomeView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: HomeViewModel?
-    
+    @State private var cartCount = 0
+    @State private var unreadCount = 0
+
     var body: some View {
         Group {
             if let viewModel {
@@ -19,13 +21,59 @@ struct HomeView: View {
         .navigationTitle("Home")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                if !appState.isBackendConfigured {
-                    Image(systemName: "key.slash")
-                        .foregroundStyle(GagColors.amber)
+                HStack(spacing: GagShapes.spacingM) {
+                    if !appState.isBackendConfigured {
+                        Image(systemName: "key.slash")
+                            .foregroundStyle(GagColors.amber)
+                    }
+                    NavigationLink {
+                        NotificationsView()
+                    } label: {
+                        badgeIcon("bell", count: unreadCount)
+                    }
+                    .buttonStyle(.plain)
+                    NavigationLink {
+                        CartView()
+                    } label: {
+                        badgeIcon("cart", count: cartCount)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
-        .refreshable { await viewModel?.refresh() }
+        .refreshable {
+            await viewModel?.refresh()
+            await refreshBadges()
+        }
+    }
+
+    private func badgeIcon(_ systemName: String, count: Int) -> some View {
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: systemName)
+                .font(.system(size: 20))
+                .foregroundStyle(GagColors.onSurface)
+            if count > 0 {
+                Text(count > 99 ? "99+" : "\(count)")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(GagColors.brandOrange)
+                    .clipShape(Capsule())
+                    .offset(x: 10, y: -8)
+            }
+        }
+    }
+
+    private func refreshBadges() async {
+        cartCount = await appState.repository.cart.currentCart()?.totalItems ?? 0
+        let enabled = UserDefaults.standard.object(forKey: "notificationsEnabled") as? Bool ?? true
+        guard enabled else {
+            unreadCount = 0
+            return
+        }
+        unreadCount = (try? await appState.repository.notifications.refreshNotifications())?
+            .filter { !$0.isRead }.count ?? 0
     }
     
     private func setupViewModel() async {
@@ -33,8 +81,9 @@ struct HomeView: View {
         let vm = HomeViewModel(repository: appState.repository)
         self.viewModel = vm
         await vm.load()
+        await refreshBadges()
     }
-    
+
     @ViewBuilder
     private func content(viewModel: HomeViewModel) -> some View {
         ScrollView {

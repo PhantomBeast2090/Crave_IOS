@@ -120,3 +120,68 @@ final class SwiftDataFoodCache: FoodLocalCache {
         }
     }
 }
+
+/// SwiftData-backed CartLocalStore — the cart survives app restarts.
+@MainActor
+final class SwiftDataCartStore: CartLocalStore {
+    private let modelContainer: ModelContainer
+    private var continuations: [UUID: AsyncStream<[CartItemEntity]>.Continuation] = [:]
+
+    init(modelContainer: ModelContainer) {
+        self.modelContainer = modelContainer
+    }
+
+    func loadAll() async -> [CartItemEntity] {
+        let context = ModelContext(modelContainer)
+        let descriptor = FetchDescriptor<CartItemEntity>(sortBy: [SortDescriptor(\.createdAt)])
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    func upsert(_ item: CartItemEntity) async throws {
+        let context = ModelContext(modelContainer)
+        let itemId = item.id
+        let descriptor = FetchDescriptor<CartItemEntity>(predicate: #Predicate { $0.id == itemId })
+        if (try context.fetch(descriptor)).first == nil {
+            context.insert(item)
+        }
+        try context.save()
+    }
+
+    func delete(id: String) async throws {
+        let context = ModelContext(modelContainer)
+        let descriptor = FetchDescriptor<CartItemEntity>(predicate: #Predicate { $0.id == id })
+        if let existing = try context.fetch(descriptor).first {
+            context.delete(existing)
+            try context.save()
+        }
+    }
+
+    func clear() async throws {
+        let context = ModelContext(modelContainer)
+        let descriptor = FetchDescriptor<CartItemEntity>()
+        for existing in (try? context.fetch(descriptor)) ?? [] {
+            context.delete(existing)
+        }
+        try context.save()
+    }
+
+    func observe() -> AsyncStream<[CartItemEntity]> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            continuations[id] = continuation
+            Task { @MainActor in
+                continuation.yield(await self.loadAll())
+            }
+            continuation.onTermination = { @Sendable [weak self] _ in
+                Task { @MainActor in self?.continuations.removeValue(forKey: id) }
+            }
+        }
+    }
+
+    func notifyChanged() async {
+        let items = await loadAll()
+        for continuation in continuations.values {
+            continuation.yield(items)
+        }
+    }
+}

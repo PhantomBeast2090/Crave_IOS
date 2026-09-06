@@ -25,6 +25,11 @@ nonisolated protocol AuthService: Sendable {
     ) async throws -> AuthUser
     /// Sign out — clears session + realtime channels.
     func signOut() async throws
+    /// Fetch the current user's `profiles` row.
+    func fetchProfile() async throws -> User
+    /// Update permitted profile fields (name/phone/registration_number).
+    /// Role is never editable client-side.
+    func updateProfile(name: String, phone: String?, registrationNumber: String?) async throws -> User
 }
 
 /// Used until the Supabase anon key is present in `Secrets.swift`.
@@ -43,6 +48,14 @@ nonisolated struct UnconfiguredAuthService: AuthService {
     }
 
     func signOut() async throws {}
+    
+    func fetchProfile() async throws -> User {
+        throw AppError.notConfigured
+    }
+    
+    func updateProfile(name: String, phone: String?, registrationNumber: String?) async throws -> User {
+        throw AppError.notConfigured
+    }
 }
 
 /// Factory — swaps in the real Supabase-backed service once configured.

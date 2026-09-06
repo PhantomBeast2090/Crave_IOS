@@ -4,6 +4,7 @@ import SwiftUI
 struct VendorFlow: View {
     @Environment(AppState.self) private var appState
     @State private var selection = 0
+    @State private var showSignOutConfirmation = false
 
     var body: some View {
         TabView(selection: $selection) {
@@ -19,14 +20,38 @@ struct VendorFlow: View {
                 .tabItem { Label("Menu", systemImage: "menucard") }
                 .tag(2)
 
+            NavigationStack { VendorScannerView() }
+                .tabItem { Label("Scan", systemImage: "qrcode.viewfinder") }
+                .tag(3)
+
+            NavigationStack { VendorAnalyticsView() }
+                .tabItem { Label("Analytics", systemImage: "chart.bar") }
+                .tag(4)
+
             NavigationStack {
-                Button("Sign Out") {
-                    Task { await appState.signOut() }
+                List {
+                    Section {
+                        HStack {
+                            Spacer()
+                            Button("Sign Out", role: .destructive) {
+                                showSignOutConfirmation = true
+                            }
+                            Spacer()
+                        }
+                    }
                 }
+                .scrollContentBackground(.hidden)
+                .background(GagColors.background)
                 .navigationTitle("Profile")
+                .confirmationDialog("Sign out of Crave?", isPresented: $showSignOutConfirmation, titleVisibility: .visible) {
+                    Button("Sign Out", role: .destructive) {
+                        Task { await appState.signOut() }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                }
             }
             .tabItem { Label("Profile", systemImage: "person") }
-            .tag(3)
+            .tag(5)
         }
         .tint(GagColors.brandOrange)
     }

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Supabase
 
 /// Root app state: owns auth, onboarding flag, and the current UI phase.
 /// Mirrors the Android SplashViewModel start-destination logic.
@@ -65,6 +66,7 @@ final class AppState {
         let user = try await auth.signIn(email: email, password: password)
         currentUser = user
         phase = .main(user.role)
+        await postAuthSync()
     }
 
     func signUp(name: String, email: String, password: String, phone: String?, registrationNumber: String?) async throws {
@@ -77,17 +79,41 @@ final class AppState {
         )
         currentUser = user
         phase = .main(user.role)
+        await postAuthSync()
     }
 
     func signOut() async {
+        // Drop realtime subscriptions first so no callbacks fire mid-signout.
+        await SupabaseClientProvider.shared.realtimeV2.removeAllChannels()
         try? await auth.signOut()
         currentUser = nil
         phase = .login(.student)
     }
 
+    /// Pull server state after auth: backend cart into the local store.
+    /// Failures are non-fatal (offline login still works with local data).
+    private func postAuthSync() async {
+        do {
+            try await repository.cart.syncFromBackend()
+        } catch is CancellationError {
+        } catch {
+            print("⚠️ [AppState] post-auth cart sync failed: \(error)")
+        }
+    }
+
     /// Jump to a specific role's main flow (used by login role hint / role switch).
     func enterMain(as role: UserRole) {
         phase = .main(role)
+    }
+
+    // MARK: - Profile
+
+    func fetchProfile() async throws -> User {
+        try await auth.fetchProfile()
+    }
+
+    func updateProfile(name: String, phone: String?, registrationNumber: String?) async throws -> User {
+        try await auth.updateProfile(name: name, phone: phone, registrationNumber: registrationNumber)
     }
 
     private static let onboardingKey = "crave.onboardingCompleted"

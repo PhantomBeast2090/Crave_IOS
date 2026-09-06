@@ -17,7 +17,7 @@ struct RegisterView: View {
     private var isValid: Bool {
         !name.isEmpty
             && email.contains("@")
-            && password.count >= 6
+            && password.count >= 8
             && password == confirmPassword
     }
 
