@@ -17,13 +17,14 @@ struct OrderHistoryView: View {
         .background(AppTheme.screenBackground)
         .navigationTitle("Orders")
         .task { await setupViewModel() }
+        .onDisappear { viewModel?.stop() }
     }
 
     private func setupViewModel() async {
-        guard viewModel == nil else { return }
-        let vm = OrderHistoryViewModel(repository: appState.repository.orders)
-        self.viewModel = vm
-        vm.start()
+        if viewModel == nil {
+            viewModel = OrderHistoryViewModel(repository: appState.repository.orders)
+        }
+        viewModel?.start()
     }
 
     @ViewBuilder

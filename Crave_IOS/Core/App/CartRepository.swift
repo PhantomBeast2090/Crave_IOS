@@ -46,6 +46,10 @@ protocol CartRepository: Sendable {
     /// Clear local + backend cart.
     func clearCart() async throws
 
+    /// Clear the local store only (sign-out). Never touches the backend —
+    /// the server cart belongs to the user and survives sign-out.
+    func clearLocal() async throws
+
     /// Push the local cart to the backend. Throws on failure — checkout
     /// calls this authoritatively before `place_order`.
     func pushToBackend() async throws

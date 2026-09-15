@@ -14,12 +14,20 @@ final class SupabaseNotificationRepository: NotificationRepository, Sendable {
 
     private var userId: String? { client.auth.currentSession?.user.id.uuidString }
 
+    /// Live observer count per notification topic (see order repo: the SDK
+    /// caches channels by topic, so the last observer out removes it).
+    private var notificationChannelUses: [String: Int] = [:]
+
     func observeNotifications() -> AsyncStream<[AppNotification]> {
         AsyncStream { continuation in
+            // Topic is fixed per user; capture up front so termination can
+            // release the channel even if the session ends mid-stream.
+            let topicUid = self.userId
+            if let topicUid { notificationChannelUses[topicUid, default: 0] += 1 }
             let task = Task { @MainActor in
                 let initial = (try? await self.refreshNotifications()) ?? []
                 continuation.yield(initial)
-                guard let uid = self.userId else {
+                guard let uid = topicUid, uid == self.userId else {
                     continuation.finish()
                     return
                 }
@@ -44,7 +52,20 @@ final class SupabaseNotificationRepository: NotificationRepository, Sendable {
                 }
                 continuation.finish()
             }
-            continuation.onTermination = { _ in task.cancel() }
+            continuation.onTermination = { @Sendable [weak self] _ in
+                task.cancel()
+                Task { @MainActor [weak self] in
+                    guard let self, let topicUid else { return }
+                    let remaining = (self.notificationChannelUses[topicUid] ?? 1) - 1
+                    if remaining <= 0 {
+                        self.notificationChannelUses.removeValue(forKey: topicUid)
+                        let channel = self.client.realtimeV2.channel("notifications-\(topicUid)")
+                        await self.client.realtimeV2.removeChannel(channel)
+                    } else {
+                        self.notificationChannelUses[topicUid] = remaining
+                    }
+                }
+            }
         }
     }
 

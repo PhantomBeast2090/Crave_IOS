@@ -45,8 +45,15 @@ final class AppState {
     func launch() async {
         do {
             if let user = try await auth.restoreSession() {
-                currentUser = user
-                phase = .main(user.role)
+                // userMetadata role is client-writable: re-validate against
+                // the profiles row (server truth). Offline failure keeps the
+                // restored role — fail open for launch, server still gates data.
+                if let profile = try? await auth.fetchProfile(), profile.id == user.id {
+                    currentUser = AuthUser(id: user.id, email: user.email, role: profile.role)
+                } else {
+                    currentUser = user
+                }
+                phase = .main(currentUser?.role ?? user.role)
             } else {
                 phase = hasCompletedOnboarding ? .login(.student) : .onboarding
             }
@@ -85,6 +92,14 @@ final class AppState {
     func signOut() async {
         // Drop realtime subscriptions first so no callbacks fire mid-signout.
         await SupabaseClientProvider.shared.realtimeV2.removeAllChannels()
+        // Purge user-scoped local caches so the next login (possibly a
+        // different user on a shared device) can't resurrect them. Local-only:
+        // the backend cart/orders are untouched.
+        if let repo = repositoryStorage {
+            try? await repo.cart.clearLocal()
+            await repo.orders.clearLocalCache()
+        }
+        repositoryStorage = nil
         try? await auth.signOut()
         currentUser = nil
         phase = .login(.student)
@@ -99,11 +114,6 @@ final class AppState {
         } catch {
             print("⚠️ [AppState] post-auth cart sync failed: \(error)")
         }
-    }
-
-    /// Jump to a specific role's main flow (used by login role hint / role switch).
-    func enterMain(as role: UserRole) {
-        phase = .main(role)
     }
 
     // MARK: - Profile

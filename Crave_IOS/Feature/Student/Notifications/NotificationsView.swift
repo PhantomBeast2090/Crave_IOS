@@ -19,16 +19,17 @@ struct NotificationsView: View {
         .background(AppTheme.screenBackground)
         .navigationTitle("Notifications")
         .task { await setupViewModel() }
+        .onDisappear { viewModel?.stop() }
         .navigationDestination(item: $selectedOrderId) { orderId in
             OrderDetailView(orderId: orderId)
         }
     }
 
     private func setupViewModel() async {
-        guard viewModel == nil else { return }
-        let vm = NotificationsViewModel(repository: appState.repository.notifications)
-        self.viewModel = vm
-        vm.start()
+        if viewModel == nil {
+            viewModel = NotificationsViewModel(repository: appState.repository.notifications)
+        }
+        viewModel?.start()
     }
 
     @ViewBuilder

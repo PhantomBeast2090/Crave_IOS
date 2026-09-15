@@ -5,14 +5,6 @@ struct FoodDetailView: View {
     let outletId: String
     @Environment(AppState.self) private var appState
     @State private var viewModel: FoodDetailViewModel?
-    @State private var quantity = 1
-    /// variantId -> selected options (multi-select supported via maxSelections).
-    @State private var selectedOptions: [String: [CustomizationOption]] = [:]
-    @State private var showAddedToCart = false
-    @State private var addError: String?
-    @State private var isAdding = false
-    @State private var pendingConflictAdd: PendingCartAdd?
-    @State private var navigateToCart = false
 
     var body: some View {
         Group {
@@ -24,6 +16,7 @@ struct FoodDetailView: View {
         }
         // `.task` on the outer Group so branch swaps can't cancel the load.
         .task { await setupViewModel() }
+        .onDisappear { viewModel?.cancelPendingNavigation() }
     }
 
     private func setupViewModel() async {
@@ -55,7 +48,7 @@ struct FoodDetailView: View {
                             .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
                             .padding(.horizontal, GagShapes.spacingL)
                     }
-                    customizationsSection(item)
+                    customizationsSection(item, viewModel: viewModel)
 
                 case .error(let message):
                     GagErrorView(message: message) {
@@ -90,148 +83,33 @@ struct FoodDetailView: View {
         }
         .safeAreaInset(edge: .bottom) {
             if case .loaded(let item) = viewModel.state {
-                bottomBar(item: item)
+                bottomBar(item: item, viewModel: viewModel)
             }
         }
         .overlay(alignment: .bottom) {
-            if showAddedToCart {
-                addedToCartToast
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            if viewModel.showAddedToCart {
+                GagToast(message: "Added to cart", accessibilityIdentifier: "addedToCartToast")
+                    .padding(.bottom, 100)
             }
         }
-        .navigationDestination(isPresented: $navigateToCart) {
+        .navigationDestination(isPresented: Binding(
+            get: { viewModel.navigateToCart },
+            set: { viewModel.navigateToCart = $0 }
+        )) {
             CartView()
         }
         .alert("Different Outlet", isPresented: Binding(
-            get: { pendingConflictAdd != nil },
-            set: { if !$0 { pendingConflictAdd = nil } }
+            get: { viewModel.pendingConflictAdd != nil },
+            set: { if !$0 { viewModel.dismissConflict() } }
         )) {
             Button("Clear & Add", role: .destructive) {
-                Task { await confirmConflictAdd() }
+                Task { await viewModel.confirmConflictAdd() }
             }
             Button("Keep Cart", role: .cancel) {
-                pendingConflictAdd = nil
+                viewModel.dismissConflict()
             }
         } message: {
             Text("Your cart contains items from a different outlet. Clear cart and add from this outlet?")
-        }
-    }
-
-    // MARK: - Customization logic (mirrors Android FoodDetailViewModel)
-
-    private func selected(for variantId: String) -> [CustomizationOption] {
-        selectedOptions[variantId] ?? []
-    }
-
-    private func toggleOption(variant: FoodCustomization, option: CustomizationOption) {
-        var current = selectedOptions[variant.id] ?? []
-        if let index = current.firstIndex(where: { $0.id == option.id }) {
-            current.remove(at: index)
-        } else if variant.maxSelections <= 1 {
-            current = [option]
-        } else if current.count < variant.maxSelections {
-            current.append(option)
-        } else {
-            return // cap reached — extra taps are ignored (Android parity)
-        }
-        if current.isEmpty {
-            selectedOptions.removeValue(forKey: variant.id)
-        } else {
-            selectedOptions[variant.id] = current
-        }
-    }
-
-    private func canAddToCart(_ item: FoodItem) -> Bool {
-        guard item.isAvailable else { return false }
-        return missingRequiredNames(item).isEmpty
-    }
-
-    private func missingRequiredNames(_ item: FoodItem) -> [String] {
-        item.customizations
-            .filter { $0.isRequired && (selectedOptions[$0.id] ?? []).isEmpty }
-            .map { $0.name }
-    }
-
-    private func computedPrice(_ item: FoodItem) -> Double {
-        let extras = selectedOptions.values.flatMap { $0 }.reduce(0) { $0 + $1.extraPrice }
-        return item.price + extras
-    }
-
-    private func selectedCustomizations(_ item: FoodItem) -> [SelectedCustomization] {
-        item.customizations.flatMap { variant in
-            (selectedOptions[variant.id] ?? []).map { option in
-                SelectedCustomization(
-                    customizationId: variant.id,
-                    customizationName: variant.name,
-                    optionId: option.id,
-                    optionName: option.name,
-                    extraPrice: option.extraPrice
-                )
-            }
-        }
-    }
-
-    // MARK: - Add to cart
-
-    private func addToCart(_ item: FoodItem) {
-        guard canAddToCart(item), !isAdding else { return }
-        isAdding = true
-        addError = nil
-        Task {
-            defer { isAdding = false }
-            do {
-                _ = try await appState.repository.cart.addItem(
-                    foodItem: item,
-                    outletName: item.outletName,
-                    quantity: quantity,
-                    customizations: selectedCustomizations(item),
-                    specialInstructions: nil
-                )
-                withAnimation { showAddedToCart = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                    withAnimation { showAddedToCart = false }
-                    navigateToCart = true
-                }
-            } catch let cartError as CartError {
-                if case .outletConflict = cartError {
-                    pendingConflictAdd = PendingCartAdd(
-                        foodItem: item,
-                        outletName: item.outletName,
-                        quantity: quantity,
-                        customizations: selectedCustomizations(item),
-                        specialInstructions: nil
-                    )
-                } else {
-                    addError = cartError.localizedDescription
-                }
-            } catch is CancellationError {
-            } catch {
-                addError = error.localizedDescription
-            }
-        }
-    }
-
-    private func confirmConflictAdd() async {
-        guard let pending = pendingConflictAdd else { return }
-        pendingConflictAdd = nil
-        do {
-            try await appState.repository.cart.clearCart()
-            _ = try await appState.repository.cart.addItem(
-                foodItem: pending.foodItem,
-                outletName: pending.outletName,
-                quantity: pending.quantity,
-                customizations: pending.customizations,
-                specialInstructions: pending.specialInstructions
-            )
-            // Same post-add behavior as the direct path: toast, then Cart.
-            withAnimation { showAddedToCart = true }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                withAnimation { showAddedToCart = false }
-                navigateToCart = true
-            }
-        } catch is CancellationError {
-        } catch {
-            addError = error.localizedDescription
         }
     }
 
@@ -348,30 +226,30 @@ struct FoodDetailView: View {
         }
     }
 
-    private func customizationsSection(_ item: FoodItem) -> some View {
+    private func customizationsSection(_ item: FoodItem, viewModel: FoodDetailViewModel) -> some View {
         VStack(alignment: .leading, spacing: GagShapes.spacingM) {
             if !item.customizations.isEmpty {
                 ForEach(item.customizations) { customization in
                     CustomizationView(
                         customization: customization,
-                        selected: selected(for: customization.id),
-                        onToggle: { toggleOption(variant: customization, option: $0) }
+                        selected: viewModel.selected(for: customization.id),
+                        onToggle: { viewModel.toggleOption(variant: customization, option: $0) }
                     )
                 }
             }
         }
     }
 
-    private func bottomBar(item: FoodItem) -> some View {
+    private func bottomBar(item: FoodItem, viewModel: FoodDetailViewModel) -> some View {
         VStack(spacing: GagShapes.spacingS) {
-            if let addError {
+            if let addError = viewModel.addError {
                 Text(addError)
                     .font(GagTypography.labelMedium)
                     .foregroundStyle(GagColors.error)
-            } else if item.isAvailable, !canAddToCart(item) {
+            } else if item.isAvailable, !viewModel.canAddToCart(item) {
                 // Explain exactly what is still missing (Android parity:
                 // the button stays disabled until required groups are filled).
-                Text("Select Required: \(missingRequiredNames(item).joined(separator: ", "))")
+                Text("Select Required: \(viewModel.missingRequiredNames(item).joined(separator: ", "))")
                     .font(GagTypography.labelMedium)
                     .foregroundStyle(GagColors.amber)
             }
@@ -384,14 +262,14 @@ struct FoodDetailView: View {
                         Text("Qty")
                             .font(GagTypography.labelLarge)
                             .foregroundStyle(GagColors.onSurfaceVariant)
-                        QuantitySelector(quantity: quantity, min: 1, max: CartMath.maxQuantity) {
-                            quantity = $0
+                        QuantitySelector(quantity: viewModel.quantity, min: 1, max: CartMath.maxQuantity) {
+                            viewModel.quantity = $0
                         }
                     }
 
                     Spacer(minLength: GagShapes.spacingM)
 
-                    let total = computedPrice(item) * Double(quantity)
+                    let total = viewModel.computedPrice(item) * Double(viewModel.quantity)
                     Text(Formatters.price(total))
                         .font(GagTypography.titleMedium)
                         .foregroundStyle(GagColors.onSurface)
@@ -402,10 +280,10 @@ struct FoodDetailView: View {
                 // Row 2: full-width action (largest touch target, no crowding).
                 GagButton(
                     title: "Add to Cart",
-                    isLoading: isAdding,
-                    isEnabled: canAddToCart(item),
+                    isLoading: viewModel.isAdding,
+                    isEnabled: viewModel.canAddToCart(item),
                     accessibilityIdentifier: "addToCartButton",
-                    action: { addToCart(item) }
+                    action: { viewModel.addToCart(item) }
                 )
             }
             .padding(.horizontal, GagShapes.spacingL)
@@ -414,22 +292,6 @@ struct FoodDetailView: View {
         }
     }
 
-    private var addedToCartToast: some View {
-        HStack {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(GagColors.success)
-            Text("Added to cart")
-                .font(GagTypography.labelLarge)
-                .foregroundStyle(GagColors.onSurface)
-        }
-        .padding(.horizontal, GagShapes.spacingXL)
-        .padding(.vertical, GagShapes.spacingM)
-        .background(GagColors.surface)
-        .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
-        .shadow(radius: 10)
-        .padding(.bottom, 100)
-        .accessibilityIdentifier("addedToCartToast")
-    }
 }
 
 struct CustomizationView: View {

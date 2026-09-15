@@ -101,6 +101,10 @@ final class SupabaseOrderRepository: OrderRepository, Sendable {
         loadCachedOrders().first(where: { $0.status.isActive })
     }
 
+    func clearLocalCache() async {
+        replaceCache(with: [])
+    }
+
     // MARK: - Student reads
 
     func refreshOrders() async throws -> [Order] {
@@ -230,8 +234,15 @@ final class SupabaseOrderRepository: OrderRepository, Sendable {
 
     // MARK: - Realtime status
 
+    /// Live observer count per order topic. Channels are cached by the SDK
+    /// (`channel(topic)` returns the same instance), so the last observer
+    /// out must remove the channel — otherwise every tracking visit leaks a
+    /// server subscription until sign-out.
+    private var statusChannelUses: [String: Int] = [:]
+
     func observeOrderStatus(orderId: String) -> AsyncStream<OrderStatus> {
         AsyncStream { continuation in
+            statusChannelUses[orderId, default: 0] += 1
             let task = Task { @MainActor in
                 if let cached = self.loadCachedOrders().first(where: { $0.id == orderId }) {
                     continuation.yield(cached.status)
@@ -261,7 +272,23 @@ final class SupabaseOrderRepository: OrderRepository, Sendable {
                 }
                 continuation.finish()
             }
-            continuation.onTermination = { _ in task.cancel() }
+            continuation.onTermination = { @Sendable [weak self] _ in
+                task.cancel()
+                // Last observer out removes the channel; overlapping observers
+                // (e.g. stop+start on reappear) keep it alive. Serialized on
+                // MainActor so the count can't race.
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let remaining = (self.statusChannelUses[orderId] ?? 1) - 1
+                    if remaining <= 0 {
+                        self.statusChannelUses.removeValue(forKey: orderId)
+                        let channel = self.client.realtimeV2.channel("order-\(orderId)")
+                        await self.client.realtimeV2.removeChannel(channel)
+                    } else {
+                        self.statusChannelUses[orderId] = remaining
+                    }
+                }
+            }
         }
     }
 

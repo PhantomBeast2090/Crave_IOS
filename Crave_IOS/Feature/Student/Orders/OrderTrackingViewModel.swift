@@ -29,13 +29,28 @@ final class OrderTrackingViewModel {
     }
 
     func start() {
-        Task { await load() }
+        // Tear down any previous subscription first (reappear = refetch,
+        // then resubscribe; the repo releases the channel when the old
+        // observer terminates).
         statusTask?.cancel()
+        statusTask = nil
         statusTask = Task { [weak self] in
             guard let self else { return }
             for await status in self.repository.observeOrderStatus(orderId: self.orderId) {
                 if Task.isCancelled { break }
                 await self.applyStatus(status)
+            }
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            if self.order != nil {
+                // Reappeared with cached detail: refresh so the gap while
+                // unsubscribed doesn't show stale state.
+                if let updated = try? await self.repository.getOrderById(self.orderId) {
+                    self.state = .loaded(updated)
+                }
+            } else {
+                await self.load()
             }
         }
     }

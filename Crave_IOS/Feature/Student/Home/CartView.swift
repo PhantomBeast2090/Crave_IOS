@@ -15,6 +15,7 @@ struct CartView: View {
         }
         // `.task` on the outer Group so branch swaps can't cancel the load.
         .task { await setupViewModel() }
+        .onDisappear { viewModel?.stop() }
         .navigationTitle("Cart")
         .sheet(isPresented: $showCheckout) {
             if let viewModel, let cart = viewModel.cart {
@@ -24,10 +25,11 @@ struct CartView: View {
     }
 
     private func setupViewModel() async {
-        guard viewModel == nil else { return }
-        let vm = CartViewModel(repository: appState.repository.cart)
-        self.viewModel = vm
-        vm.start()
+        if viewModel == nil {
+            viewModel = CartViewModel(repository: appState.repository.cart)
+        }
+        // .task re-runs on reappear: resubscribe (start is idempotent).
+        viewModel?.start()
     }
 
     @ViewBuilder

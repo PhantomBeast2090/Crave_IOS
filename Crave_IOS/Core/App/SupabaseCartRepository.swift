@@ -371,6 +371,11 @@ final class SupabaseCartRepository: CartRepository, Sendable {
         }
     }
 
+    func clearLocal() async throws {
+        try await store.clear()
+        await store.notifyChanged()
+    }
+
     // MARK: - Backend sync
 
     /// Pull backend cart → local (call after login). Remote wins on outlet

@@ -21,16 +21,18 @@ struct OrderTrackingView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .task { await setupViewModel() }
+        .onDisappear { viewModel?.stop() }
         .sheet(isPresented: $showQR) {
             NavigationStack { OrderQRView(orderId: orderId) }
         }
     }
 
     private func setupViewModel() async {
-        guard viewModel == nil else { return }
-        let vm = OrderTrackingViewModel(orderId: orderId, repository: appState.repository.orders)
-        self.viewModel = vm
-        vm.start()
+        if viewModel == nil {
+            viewModel = OrderTrackingViewModel(orderId: orderId, repository: appState.repository.orders)
+        }
+        // .task re-runs on reappear: resubscribe (refetch-then-subscribe).
+        viewModel?.start()
     }
 
     @ViewBuilder

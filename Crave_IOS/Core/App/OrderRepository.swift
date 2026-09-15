@@ -11,6 +11,9 @@ protocol OrderRepository: Sendable {
     /// Fetch orders from the backend and refresh the cache.
     func refreshOrders() async throws -> [Order]
 
+    /// Drop all locally cached orders (sign-out). Backend is untouched.
+    func clearLocalCache() async
+
     /// Fetch a single order with slot + items + customizations.
     func getOrderById(_ orderId: String) async throws -> Order
 
