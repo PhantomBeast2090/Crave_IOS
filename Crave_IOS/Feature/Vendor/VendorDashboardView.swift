@@ -61,9 +61,9 @@ struct VendorDashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: GagShapes.spacingL) {
                 HStack(spacing: GagShapes.spacingM) {
-                    VendorStatCard(title: "Pending", count: viewModel.pendingCount, color: GagColors.info)
-                    VendorStatCard(title: "Preparing", count: viewModel.preparingCount, color: GagColors.amber)
-                    VendorStatCard(title: "Ready", count: viewModel.readyCount, color: GagColors.success)
+                    GagStatTile(title: "Pending", value: "\(viewModel.pendingCount)", accent: GagColors.info)
+                    GagStatTile(title: "Preparing", value: "\(viewModel.preparingCount)", accent: GagColors.amber)
+                    GagStatTile(title: "Ready", value: "\(viewModel.readyCount)", accent: GagColors.success)
                 }
 
                 if let actionError = viewModel.actionError {
@@ -105,27 +105,6 @@ struct VendorDashboardView: View {
                 .padding(GagShapes.spacingL)
                 .background(GagColors.surface)
         }
-    }
-}
-
-struct VendorStatCard: View {
-    let title: String
-    let count: Int
-    let color: Color
-
-    var body: some View {
-        VStack(spacing: 4) {
-            Text("\(count)")
-                .font(GagTypography.titleLarge)
-                .foregroundStyle(color)
-            Text(title)
-                .font(GagTypography.labelSmall)
-                .foregroundStyle(GagColors.onSurfaceVariant)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, GagShapes.spacingM)
-        .background(color.opacity(0.12))
-        .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
     }
 }
 

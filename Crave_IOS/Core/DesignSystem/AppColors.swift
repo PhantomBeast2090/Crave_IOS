@@ -64,31 +64,31 @@ nonisolated enum GagColors {
     static let onSurfaceVariant = Color(light: 0x4B5563, dark: 0xAAAAAA)
     static let onSurfaceDim = Color(light: 0x9CA3AF, dark: 0x6B6B6B)
 
-    // ─── Semantic ─────────────────────────────────────────────────
-    static let success = Color(hex: 0x22C55E)
-    static let successContainer = Color(hex: 0x0D2818)
-    static let error = Color(hex: 0xEF4444)
-    static let errorContainer = Color(hex: 0x2D0000)
-    static let warning = Color(hex: 0xF59E0B)
-    static let warningContainer = Color(hex: 0x2D1900)
-    static let info = Color(hex: 0x3B82F6)
+    // ─── Semantic (adaptive: darker hues on light, vivid on dark) ──
+    static let success = Color(light: 0x16A34A, dark: 0x22C55E)
+    static let successContainer = Color(light: 0xDCFCE7, dark: 0x0D2818)
+    static let error = Color(light: 0xDC2626, dark: 0xEF4444)
+    static let errorContainer = Color(light: 0xFEE2E2, dark: 0x2D0000)
+    static let warning = Color(light: 0xD97706, dark: 0xF59E0B)
+    static let warningContainer = Color(light: 0xFEF3C7, dark: 0x2D1900)
+    static let info = Color(light: 0x2563EB, dark: 0x3B82F6)
 
-    // ─── Order status ─────────────────────────────────────────────
-    static let statusCreated = Color(hex: 0x94A3B8)
-    static let statusPlaced = Color(hex: 0x3B82F6)
-    static let statusAccepted = Color(hex: 0x8B5CF6)
-    static let statusPreparing = Color(hex: 0xF59E0B)
-    static let statusReady = Color(hex: 0x22C55E)
+    // ─── Order status (adaptive; text + 12% tint in OrderStatusBadge) ──
+    static let statusCreated = Color(light: 0x64748B, dark: 0x94A3B8)
+    static let statusPlaced = Color(light: 0x2563EB, dark: 0x3B82F6)
+    static let statusAccepted = Color(light: 0x7C3AED, dark: 0x8B5CF6)
+    static let statusPreparing = Color(light: 0xD97706, dark: 0xF59E0B)
+    static let statusReady = Color(light: 0x16A34A, dark: 0x22C55E)
     static let statusPickedUp = Color(hex: 0x6B7280)
-    static let statusCancelled = Color(hex: 0xEF4444)
-    static let statusRejected = Color(hex: 0xEF4444)
+    static let statusCancelled = Color(light: 0xDC2626, dark: 0xEF4444)
+    static let statusRejected = Color(light: 0xDC2626, dark: 0xEF4444)
     static let statusExpired = Color(hex: 0x6B7280)
-    static let statusRefunded = Color(hex: 0x06B6D4)
+    static let statusRefunded = Color(light: 0x0891B2, dark: 0x06B6D4)
 
-    // ─── Pickup slots ─────────────────────────────────────────────
-    static let slotAvailable = Color(hex: 0x22C55E)
-    static let slotLimited = Color(hex: 0xF59E0B)
-    static let slotFull = Color(hex: 0xEF4444)
+    // ─── Pickup slots (adaptive) ────────────────────────────────
+    static let slotAvailable = Color(light: 0x16A34A, dark: 0x22C55E)
+    static let slotLimited = Color(light: 0xD97706, dark: 0xF59E0B)
+    static let slotFull = Color(light: 0xDC2626, dark: 0xEF4444)
 
     // ─── Food categories ──────────────────────────────────────────
     static let categoryMeals = Color(hex: 0xE8431A)
@@ -99,9 +99,9 @@ nonisolated enum GagColors {
     static let categoryChinese = Color(hex: 0x8B5CF6)
     static let categoryDesserts = Color(hex: 0xF97316)
 
-    // ─── Veg / non-veg ────────────────────────────────────────────
-    static let vegGreen = Color(hex: 0x22C55E)
-    static let nonVegRed = Color(hex: 0xEF4444)
+    // ─── Veg / non-veg (adaptive; always paired with shape/label, never color-only)
+    static let vegGreen = Color(light: 0x16A34A, dark: 0x22C55E)
+    static let nonVegRed = Color(light: 0xDC2626, dark: 0xEF4444)
 
     // ─── Gradients ────────────────────────────────────────────────
     static let gradientStart = Color(hex: 0xE8431A)

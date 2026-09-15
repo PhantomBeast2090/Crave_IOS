@@ -43,8 +43,8 @@ struct VendorAnalyticsView: View {
                         .foregroundStyle(GagColors.onSurface)
 
                     HStack(spacing: GagShapes.spacingM) {
-                        analyticsCard(title: "Total Revenue", value: Formatters.price(revenue))
-                        analyticsCard(title: "Completed Orders", value: "\(completed)")
+                        GagStatTile(title: "Total Revenue", value: Formatters.price(revenue))
+                        GagStatTile(title: "Completed Orders", value: "\(completed)")
                     }
 
                     if !topItems.isEmpty {
@@ -73,20 +73,6 @@ struct VendorAnalyticsView: View {
         }
     }
 
-    private func analyticsCard(title: String, value: String) -> some View {
-        VStack(spacing: 4) {
-            Text(value)
-                .font(GagTypography.titleMedium)
-                .foregroundStyle(GagColors.onSurface)
-            Text(title)
-                .font(GagTypography.labelSmall)
-                .foregroundStyle(GagColors.onSurfaceVariant)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, GagShapes.spacingM)
-        .background(GagColors.surface)
-        .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
-    }
 }
 
 #Preview {

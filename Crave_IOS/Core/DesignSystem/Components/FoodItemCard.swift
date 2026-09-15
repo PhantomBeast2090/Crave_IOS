@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// Green triangle (veg) / red diamond (non-veg) indicator.
+/// Veg / non-veg indicator (Indian convention): green circle-in-square for
+/// veg, red triangle-in-square for non-veg. Shape differs — never color-only.
+/// VoiceOver announces the diet type.
 struct VegIndicator: View {
     let isVeg: Bool
     var size: CGFloat = 14
@@ -10,10 +12,29 @@ struct VegIndicator: View {
             RoundedRectangle(cornerRadius: 3)
                 .stroke(isVeg ? GagColors.vegGreen : GagColors.nonVegRed, lineWidth: 1.5)
                 .frame(width: size, height: size)
-            Circle()
-                .fill(isVeg ? GagColors.vegGreen : GagColors.nonVegRed)
-                .frame(width: size * 0.45)
+            if isVeg {
+                Circle()
+                    .fill(GagColors.vegGreen)
+                    .frame(width: size * 0.45)
+            } else {
+                Triangle()
+                    .fill(GagColors.nonVegRed)
+                    .frame(width: size * 0.55, height: size * 0.5)
+            }
         }
+        .accessibilityLabel(isVeg ? "Vegetarian" : "Non-vegetarian")
+    }
+}
+
+/// Upward triangle for the non-veg indicator.
+private struct Triangle: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }
 

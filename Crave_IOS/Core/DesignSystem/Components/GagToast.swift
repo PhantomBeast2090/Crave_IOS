@@ -4,6 +4,7 @@ import SwiftUI
 /// presentation + auto-dismiss timing; this is pure UI.
 struct GagToast: View {
     let message: String
+    var accessibilityIdentifier: String?
 
     var body: some View {
         HStack(spacing: GagShapes.spacingS) {
@@ -20,5 +21,6 @@ struct GagToast: View {
         .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
         .shadow(radius: 10)
         .transition(.move(edge: .bottom).combined(with: .opacity))
+        .accessibilityIdentifier(accessibilityIdentifier ?? "")
     }
 }

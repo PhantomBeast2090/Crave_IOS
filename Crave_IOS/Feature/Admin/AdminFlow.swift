@@ -69,19 +69,19 @@ struct AdminFlow: View {
     private func statsGrid(_ stats: SystemStats) -> some View {
         VStack(spacing: GagShapes.spacingM) {
             HStack(spacing: GagShapes.spacingM) {
-                AdminStatBox(title: "Total Users", value: "\(stats.totalUsers)")
-                AdminStatBox(title: "Total Vendors", value: "\(stats.totalVendors)")
-                AdminStatBox(title: "Total Outlets", value: "\(stats.totalOutlets)")
+                GagStatTile(title: "Total Users", value: "\(stats.totalUsers)")
+                GagStatTile(title: "Total Vendors", value: "\(stats.totalVendors)")
+                GagStatTile(title: "Total Outlets", value: "\(stats.totalOutlets)")
             }
             HStack(spacing: GagShapes.spacingM) {
-                AdminStatBox(title: "Total Orders", value: "\(stats.totalOrders)")
-                AdminStatBox(title: "Active Orders", value: "\(stats.activeOrders)")
-                AdminStatBox(title: "Completed", value: "\(stats.completedOrders)")
+                GagStatTile(title: "Total Orders", value: "\(stats.totalOrders)")
+                GagStatTile(title: "Active Orders", value: "\(stats.activeOrders)")
+                GagStatTile(title: "Completed", value: "\(stats.completedOrders)")
             }
             HStack(spacing: GagShapes.spacingM) {
-                AdminStatBox(title: "Revenue", value: Formatters.price(stats.revenue))
-                AdminStatBox(title: "Orders Today", value: "\(stats.ordersToday)")
-                AdminStatBox(title: "Revenue Today", value: Formatters.price(stats.revenueToday))
+                GagStatTile(title: "Revenue", value: Formatters.price(stats.revenue))
+                GagStatTile(title: "Orders Today", value: "\(stats.ordersToday)")
+                GagStatTile(title: "Revenue Today", value: Formatters.price(stats.revenueToday))
             }
         }
     }
@@ -118,30 +118,6 @@ struct AdminFlow: View {
                 .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
             }
         }
-    }
-}
-
-struct AdminStatBox: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        VStack(spacing: 4) {
-            Text(value)
-                .font(GagTypography.titleMedium)
-                .foregroundStyle(GagColors.brandOrange)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Text(title)
-                .font(GagTypography.labelSmall)
-                .foregroundStyle(GagColors.onSurfaceVariant)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, GagShapes.spacingM)
-        .background(GagColors.surfaceVariant)
-        .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
     }
 }
 
