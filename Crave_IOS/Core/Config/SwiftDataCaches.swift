@@ -141,9 +141,13 @@ final class SwiftDataCartStore: CartLocalStore {
         let context = ModelContext(modelContainer)
         let itemId = item.id
         let descriptor = FetchDescriptor<CartItemEntity>(predicate: #Predicate { $0.id == itemId })
-        if (try context.fetch(descriptor)).first == nil {
-            context.insert(item)
+        // Callers mutate a detached instance then upsert it: replace the stored
+        // row so quantity/price/customization edits persist. (Insert-only here
+        // silently dropped edits — quantity changes never survived relaunch.)
+        if let existing = try context.fetch(descriptor).first {
+            context.delete(existing)
         }
+        context.insert(item)
         try context.save()
     }
 

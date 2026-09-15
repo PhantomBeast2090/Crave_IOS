@@ -57,15 +57,22 @@ final class CheckoutViewModel {
 
     let cart: Cart
     private let repository: AppRepository
+    private let sheet: any PaymentSheetProvider
     private let userEmail: String?
     /// Order placed but payment not yet verified (retry cancels it first,
     /// mirroring Android's stale-order cancellation).
     private var pendingOrderId: String?
+    /// Sheet succeeded but server verification has not (yet). Retained so a
+    /// verify-timeout/network-loss can be retried as a re-verify of the SAME
+    /// order — cancelling here could cancel an order the server already
+    /// captured payment for.
+    private var pendingVerification: (order: Order, request: PaymentVerificationRequest)?
 
-    init(cart: Cart, repository: AppRepository, userEmail: String? = nil) {
+    init(cart: Cart, repository: AppRepository, userEmail: String? = nil, sheet: (any PaymentSheetProvider)? = nil) {
         self.cart = cart
         self.repository = repository
         self.userEmail = userEmail
+        self.sheet = sheet ?? RazorpayService.shared
     }
 
     var canPlaceOrder: Bool {
@@ -126,6 +133,7 @@ final class CheckoutViewModel {
                 paymentMethod: paymentMethod
             )
             pendingOrderId = order.id
+            pendingVerification = nil // fresh order, previous verify context is stale
 
             if paymentMethod == .payAtCounter {
                 try? await repository.cart.clearCart()
@@ -138,7 +146,7 @@ final class CheckoutViewModel {
             flowState = .awaitingPayment(order: order)
             let details = try await repository.payments.createRazorpayOrder(orderId: order.id)
 
-            let sheetResult = await RazorpayService.shared.pay(
+            let sheetResult = await sheet.pay(
                 keyId: details.keyId,
                 amountPaise: details.amount,
                 razorpayOrderId: details.razorpayOrderId,
@@ -148,16 +156,15 @@ final class CheckoutViewModel {
 
             switch sheetResult {
             case .success(let paymentId, let rzOrderId, let signature):
-                flowState = .verifying(order: order)
-                try await repository.payments.verifyRazorpayPayment(PaymentVerificationRequest(
+                let request = PaymentVerificationRequest(
                     orderId: order.id,
                     razorpayOrderId: rzOrderId,
                     razorpayPaymentId: paymentId,
                     razorpaySignature: signature
-                ))
-                try? await repository.cart.clearCart()
-                pendingOrderId = nil
-                flowState = .success(order: order)
+                )
+                pendingVerification = (order, request)
+                flowState = .verifying(order: order)
+                try await verifyPayment(order: order, request: request)
 
             case .cancelled:
                 // Order remains, cart intact — user can retry or pay later.
@@ -173,7 +180,39 @@ final class CheckoutViewModel {
         }
     }
 
+    /// Server-side verification + post-payment cleanup. Throws on failure so
+    /// the caller lands in `.error` WITH `pendingVerification` retained for
+    /// an idempotent re-verify retry.
+    private func verifyPayment(order: Order, request: PaymentVerificationRequest) async throws {
+        try await repository.payments.verifyRazorpayPayment(request)
+        try? await repository.cart.clearCart()
+        pendingOrderId = nil
+        pendingVerification = nil
+        flowState = .success(order: order)
+    }
+
+    /// Re-verify the same order after a verify-stage failure (timeout,
+    /// network loss, backend error). Never cancels: the server may already
+    /// have captured payment.
+    func retryVerification() async {
+        guard case .error = flowState, let pending = pendingVerification else { return }
+        flowState = .verifying(order: pending.order)
+        do {
+            try await verifyPayment(order: pending.order, request: pending.request)
+        } catch is CancellationError {
+            flowState = .idle
+        } catch {
+            flowState = .error(message: error.localizedDescription)
+        }
+    }
+
     func retryAfterError() async {
+        // A verify-stage failure retries verification of the same order;
+        // anything earlier re-places (cancelling the stale order first).
+        if case .error = flowState, pendingVerification != nil {
+            await retryVerification()
+            return
+        }
         if case .error = flowState { flowState = .idle }
         if case .paymentCancelled = flowState { flowState = .idle }
         await placeOrder()

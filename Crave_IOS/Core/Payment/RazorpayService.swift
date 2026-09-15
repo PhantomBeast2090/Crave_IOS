@@ -9,7 +9,7 @@ import RazorpayCheckout
 /// `RazorpaySheetResult`. Server-side `verify-razorpay-payment` remains
 /// authoritative; this sheet result alone never marks payment success.
 @MainActor
-final class RazorpayService: NSObject, PaymentCompletionWithDataDelegate {
+final class RazorpayService: NSObject, PaymentCompletionWithDataDelegate, PaymentSheetProvider {
     static let shared = RazorpayService()
 
     private var checkout: RazorpaySwift?

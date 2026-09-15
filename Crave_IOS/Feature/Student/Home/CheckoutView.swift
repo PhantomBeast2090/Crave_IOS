@@ -186,32 +186,28 @@ struct CheckoutView: View {
                 .font(GagTypography.titleSmall)
                 .foregroundStyle(GagColors.onSurface)
 
-            ForEach(PaymentMethod.allCases, id: \.self) { method in
-                Button {
-                    viewModel.paymentMethod = method
-                } label: {
-                    HStack(spacing: GagShapes.spacingM) {
-                        Image(systemName: viewModel.paymentMethod == method
-                            ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 20))
-                            .foregroundStyle(viewModel.paymentMethod == method
-                                ? GagColors.brandOrange : GagColors.outlineVariant)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(method.displayName)
-                                .font(GagTypography.bodyMedium)
-                                .foregroundStyle(GagColors.onSurface)
-                            Text(method == .online ? "Pay securely via Razorpay" : "Pay when you pick up")
-                                .font(GagTypography.labelSmall)
-                                .foregroundStyle(GagColors.onSurfaceVariant)
-                        }
-                        Spacer()
-                    }
-                    .padding(GagShapes.spacingM)
-                    .background(GagColors.surfaceVariant)
-                    .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
+            // ONLINE only (product decision): the backend still supports
+            // PAY_AT_COUNTER, but the student UI no longer offers it.
+            HStack(spacing: GagShapes.spacingM) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(GagColors.brandOrange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(PaymentMethod.online.displayName)
+                        .font(GagTypography.bodyMedium)
+                        .foregroundStyle(GagColors.onSurface)
+                    Text("Pay securely via Razorpay")
+                        .font(GagTypography.labelSmall)
+                        .foregroundStyle(GagColors.onSurfaceVariant)
                 }
-                .buttonStyle(.plain)
+                Spacer()
             }
+            .padding(GagShapes.spacingM)
+            .background(GagColors.surfaceVariant)
+            .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Payment method: Online Payment. Pay securely via Razorpay.")
+            .accessibilityIdentifier("onlinePaymentRow")
         }
         .gagCard()
     }

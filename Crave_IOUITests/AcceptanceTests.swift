@@ -389,35 +389,17 @@ final class CraveAcceptanceTests: XCTestCase {
         XCTAssertTrue(picked, "at least one selectable slot is required to order")
         shoot("03-checkout")
 
-        // Pay at Counter → place.
-        guard tapWhenReady(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Pay at Counter'")).element,
-                           description: "Pay at Counter option") else { return }
-        guard tapWhenReady(app.buttons["placeOrderButton"], description: "Place Order") else { return }
-        XCTAssertTrue(app.staticTexts["Order Placed!"].waitForExistence(timeout: 90),
-                      "PAY_AT_COUNTER order must confirm")
-        shoot("03-confirmation")
-
-        // HISTORY — order appears; open it; cancel to clean up.
-        guard tapWhenReady(app.buttons["Done"], description: "confirmation Done") else { return }
-        app.tabBars.buttons["Orders"].tap()
-        let orderRows = app.buttons.matching(NSPredicate(format: "label CONTAINS 'GAG-'"))
-        XCTAssertTrue(orderRows.element.waitForExistence(timeout: 30), "placed order must appear in history")
-        orderRows.allElementsBoundByIndex[0].tap()
-        XCTAssertTrue(app.staticTexts["Order Placed"].waitForExistence(timeout: 30) ||
-            app.staticTexts["Accepted"].exists)
-        shoot("03-order-detail")
-
-        // Cancel the test order to clean up backend state (also verifies cancel).
-        if app.buttons["Cancel Order"].waitForExistence(timeout: 5) {
-            guard tapWhenReady(app.buttons["Cancel Order"], description: "Cancel Order") else { return }
-            let sheet = app.sheets.element
-            if sheet.waitForExistence(timeout: 5) {
-                sheet.buttons["Cancel Order"].tap()
-            }
-            XCTAssertTrue(app.staticTexts["Cancelled"].waitForExistence(timeout: 30),
-                          "order must show Cancelled after cancel")
-            shoot("03-order-cancelled")
-        }
+        // ONLINE-only product decision: Online Payment is offered, Pay at
+        // Counter is gone. Placing an ONLINE order requires driving the
+        // Razorpay sheet, which UI tests cannot do, so checkout verification
+        // stops at method + slot selection (no test order is placed).
+        XCTAssertTrue(app.staticTexts["Online Payment"].waitForExistence(timeout: 10),
+                      "online payment method must be shown")
+        XCTAssertFalse(app.staticTexts["Pay at Counter"].exists,
+                       "Pay at Counter must not be offered")
+        XCTAssertTrue(app.buttons["placeOrderButton"].exists,
+                      "place order CTA must be present")
+        shoot("03-checkout-online-only")
     }
 
     // MARK: - TEST 4: dark mode walkthrough
@@ -467,30 +449,6 @@ final class CraveAcceptanceTests: XCTestCase {
             }
         }
         app.tabBars.buttons["Profile"].tap()
-    }
-
-    // MARK: - TEST 9: debug dump of food-detail accessibility (temporary)
-
-    func test99_dumpFoodDetail() throws {
-        guard env("UITEST_EMAIL") != nil, env("UITEST_PASSWORD") != nil else {
-            throw XCTSkip("needs confirmed account")
-        }
-        launch()
-        try signInIfNeeded(env("UITEST_EMAIL")!, env("UITEST_PASSWORD")!)
-        let outlets = app.buttons.matching(identifier: "outletCard")
-        XCTAssertTrue(outlets.element.waitForExistence(timeout: 60))
-        outlets.allElementsBoundByIndex[0].tap()
-        let foods = app.buttons.matching(identifier: "foodCard")
-        XCTAssertTrue(foods.element.waitForExistence(timeout: 60))
-        foods.allElementsBoundByIndex[0].tap()
-        sleep(5)
-        var lines: [String] = []
-        for b in app.buttons.allElementsBoundByIndex {
-            lines.append("button id=\(b.identifier) label=\(b.label)")
-        }
-        print("AX_DUMP_START")
-        print(lines.joined(separator: "\n"))
-        print("AX_DUMP_END")
     }
 
     // MARK: - Shared auth helper

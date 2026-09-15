@@ -23,3 +23,18 @@ nonisolated enum RazorpaySheetResult: Sendable, Equatable {
     case cancelled
     case failed(message: String)
 }
+
+// MARK: - Payment sheet provider (seam for testing)
+
+/// Presents the Razorpay sheet. Production: `RazorpayService.shared`.
+/// Tests inject a fake — the VM must never touch the native SDK directly.
+@MainActor
+protocol PaymentSheetProvider {
+    func pay(
+        keyId: String,
+        amountPaise: Int,
+        razorpayOrderId: String,
+        outletName: String,
+        email: String?
+    ) async -> RazorpaySheetResult
+}
