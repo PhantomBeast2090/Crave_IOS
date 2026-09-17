@@ -37,4 +37,9 @@ protocol PaymentSheetProvider {
         outletName: String,
         email: String?
     ) async -> RazorpaySheetResult
+
+    /// Abandon a sheet wait that will never complete (timeout, user cancel).
+    /// Drops the stale continuation so a later payment starts clean; a late
+    /// native callback resolves to `.cancelled` instead of leaking.
+    func abandon()
 }

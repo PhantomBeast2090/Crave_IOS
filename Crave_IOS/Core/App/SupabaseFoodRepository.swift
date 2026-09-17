@@ -217,21 +217,27 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
 
         try await localCache.updateFavorite(foodItemId, isFavorite: newStatus)
 
-        // Sync to Supabase favorites table
-        if let userId = auth.currentSession?.user.id.uuidString {
-            if newStatus {
-                try await client
-                    .from("favorites")
-                    .upsert(FavoriteInsert(userId: userId, foodItemId: foodItemId))
-                    .execute()
-            } else {
-                try await client
-                    .from("favorites")
-                    .delete()
-                    .eq("user_id", value: userId)
-                    .eq("food_item_id", value: foodItemId)
-                    .execute()
+        // Sync to Supabase favorites table. On failure the local flip is
+        // reverted so the cache never diverges from the server.
+        do {
+            if let userId = auth.currentSession?.user.id.uuidString {
+                if newStatus {
+                    try await client
+                        .from("favorites")
+                        .upsert(FavoriteInsert(userId: userId, foodItemId: foodItemId))
+                        .execute()
+                } else {
+                    try await client
+                        .from("favorites")
+                        .delete()
+                        .eq("user_id", value: userId)
+                        .eq("food_item_id", value: foodItemId)
+                        .execute()
+                }
             }
+        } catch {
+            try? await localCache.updateFavorite(foodItemId, isFavorite: current)
+            throw error
         }
 
         return newStatus

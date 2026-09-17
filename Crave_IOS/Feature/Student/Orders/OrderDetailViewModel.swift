@@ -14,6 +14,9 @@ final class OrderDetailViewModel {
 
     private(set) var state: State = .idle
     private(set) var isCancelling = false
+    /// Last cancel failure, shown inline by the detail screen (a silent
+    /// dismiss previously left users retrying blindly).
+    private(set) var cancelError: String?
     let orderId: String
     private let repository: OrderRepository
 
@@ -55,15 +58,19 @@ final class OrderDetailViewModel {
         }
     }
 
-    /// Student cancel (PLACED only — enforced again server-side).
+    /// Student cancel (PLACED/CREATED — enforced again server-side).
     func cancel(reason: String = "Cancelled by user") async -> Bool {
         guard !isCancelling else { return false }
         isCancelling = true
+        cancelError = nil
         defer { isCancelling = false }
         do {
             state = .loaded(try await repository.cancelOrder(orderId: orderId, reason: reason))
             return true
+        } catch is CancellationError {
+            return false
         } catch {
+            cancelError = error.localizedDescription
             return false
         }
     }

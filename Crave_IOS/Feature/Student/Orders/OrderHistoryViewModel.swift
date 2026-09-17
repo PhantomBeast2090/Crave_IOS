@@ -19,8 +19,14 @@ final class OrderHistoryViewModel {
         self.repository = repository
     }
 
+    /// Active orders for the student. `.created` (placed but unpaid, e.g.
+    /// Razorpay sheet cancelled) is included: it needs payment or cancelling,
+    /// and hiding it made orders "disappear". Vendor queues intentionally keep
+    /// the shared `isActive` filter (unpaid work isn't actionable there).
     var activeOrders: [Order] {
-        if case .loaded(let orders) = state { return orders.filter { $0.status.isActive } }
+        if case .loaded(let orders) = state {
+            return orders.filter { $0.status.isActive || $0.status == .created }
+        }
         return []
     }
 

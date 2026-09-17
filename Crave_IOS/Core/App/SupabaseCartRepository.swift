@@ -10,12 +10,17 @@ private struct RemoteCartRow: Decodable, Sendable {
     let subtotal: Double
     let tax: Double
     let total: Double
+    /// Server `updated_at`, used to resolve local-vs-remote conflicts by
+    /// freshness. Empty when the column is absent/unparseable (then the
+    /// merge falls back to outlet matching).
+    let updatedAt: String
 
     enum CodingKeys: String, CodingKey {
         case id
         case userId = "user_id"
         case outletId = "outlet_id"
         case subtotal, tax, total
+        case updatedAt = "updated_at"
     }
 
     init(from decoder: any Decoder) throws {
@@ -26,6 +31,7 @@ private struct RemoteCartRow: Decodable, Sendable {
         subtotal = Self.flexDouble(c, key: .subtotal)
         tax = Self.flexDouble(c, key: .tax)
         total = Self.flexDouble(c, key: .total)
+        updatedAt = (try? c.decodeIfPresent(String.self, forKey: .updatedAt)) ?? ""
     }
 
     private static func flexDouble(_ c: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Double {
@@ -282,6 +288,27 @@ final class SupabaseCartRepository: CartRepository, Sendable {
         return CartMath.snapshot(outletId: first.outletId, outletName: first.outletName, items: items)
     }
 
+    // MARK: - Sync helpers
+
+    /// Clock-skew tolerance for local-vs-remote freshness comparisons. Ties
+    /// and close calls resolve to the server (authoritative posture).
+    private static let syncSkewTolerance: TimeInterval = 60
+
+    private static let syncFractionalFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let syncPlainFormatter = ISO8601DateFormatter()
+
+    /// Parse a Supabase timestamp (`updated_at`). Nil when absent/unparseable —
+    /// callers fall back to outlet matching in that case.
+    private static func serverDate(_ string: String) -> Date? {
+        guard !string.isEmpty else { return nil }
+        return syncFractionalFormatter.date(from: string) ?? syncPlainFormatter.date(from: string)
+    }
+
     // MARK: - Mutations
 
     @discardableResult
@@ -378,35 +405,58 @@ final class SupabaseCartRepository: CartRepository, Sendable {
 
     // MARK: - Backend sync
 
-    /// Pull backend cart → local (call after login). Remote wins on outlet
-    /// conflict; local-only lines merge when outlets match.
+    /// Pull backend cart → local (call after login).
+    ///
+    /// Merge policy — a local cart must never vanish silently:
+    /// - No remote cart row → keep local; it is pushed on next mutation.
+    /// - Any fetch *failure* → keep local untouched and throw so callers can
+    ///   surface it. A failed fetch is never treated as an empty remote cart.
+    /// - Remote cart with zero items → adopt it only if the server row is
+    ///   fresher than local lines (e.g. post-payment server clear); a stale
+    ///   residue row must not wipe just-added items.
+    /// - Outlet mismatch → freshest side wins (60s clock-skew tolerance, ties
+    ///   go to the server); same outlet → merge local-only lines in.
     func syncFromBackend() async throws {
         guard let uid = userId else { return }
 
-        let remote: [RemoteCartRow] = (try? await client.from("carts")
-            .select()
-            .eq("user_id", value: uid)
-            .order("updated_at", ascending: false)
-            .limit(1)
-            .execute()
-            .value) ?? []
+        let remote: [RemoteCartRow]
+        do {
+            remote = try await client.from("carts")
+                .select()
+                .eq("user_id", value: uid)
+                .order("updated_at", ascending: false)
+                .limit(1)
+                .execute()
+                .value
+        } catch {
+            throw AppError.message("Couldn't sync cart: \(describeDecodingError(error))")
+        }
         guard let cartRow = remote.first else { return } // keep local; pushed later
 
-        let itemRows: [RemoteCartItemJoin] = (try? await client.from("cart_items")
-            .select("id, food_item_id, quantity, price, is_veg, special_instructions, food_items(name, image_url, outlets(name))")
-            .eq("cart_id", value: cartRow.id)
-            .execute()
-            .value) ?? []
+        let itemRows: [RemoteCartItemJoin]
+        do {
+            itemRows = try await client.from("cart_items")
+                .select("id, food_item_id, quantity, price, is_veg, special_instructions, food_items(name, image_url, outlets(name))")
+                .eq("cart_id", value: cartRow.id)
+                .execute()
+                .value
+        } catch {
+            throw AppError.message("Couldn't sync cart: \(describeDecodingError(error))")
+        }
 
         var customsByItem: [String: [RemoteCustomizationRow]] = [:]
         let ids = itemRows.map { $0.id }
         if !ids.isEmpty {
-            let rows: [RemoteCustomizationRow] = (try? await client.from("cart_item_customizations")
-                .select()
-                .in("cart_item_id", values: ids)
-                .execute()
-                .value) ?? []
-            for r in rows { customsByItem[r.cartItemId, default: []].append(r) }
+            do {
+                let rows: [RemoteCustomizationRow] = try await client.from("cart_item_customizations")
+                    .select()
+                    .in("cart_item_id", values: ids)
+                    .execute()
+                    .value
+                for r in rows { customsByItem[r.cartItemId, default: []].append(r) }
+            } catch {
+                throw AppError.message("Couldn't sync cart: \(describeDecodingError(error))")
+            }
         }
 
         // Resolve variant/option display names in one query.
@@ -414,16 +464,20 @@ final class SupabaseCartRepository: CartRepository, Sendable {
         var optionExtras: [String: Double] = [:]
         let foodIds = Array(Set(itemRows.map { $0.foodItemId })).filter { !$0.isEmpty }
         if !foodIds.isEmpty {
-            let variants: [VariantNameRow] = (try? await client.from("food_variants")
-                .select("id, food_item_id, name, food_variant_options(id, name, extra_price)")
-                .in("food_item_id", values: foodIds)
-                .execute()
-                .value) ?? []
-            for v in variants {
-                for o in v.options ?? [] {
-                    variantNames["\(v.id)/\(o.id)"] = "\(v.name): \(o.name)"
-                    optionExtras[o.id] = o.extraPrice
+            do {
+                let variants: [VariantNameRow] = try await client.from("food_variants")
+                    .select("id, food_item_id, name, food_variant_options(id, name, extra_price)")
+                    .in("food_item_id", values: foodIds)
+                    .execute()
+                    .value
+                for v in variants {
+                    for o in v.options ?? [] {
+                        variantNames["\(v.id)/\(o.id)"] = "\(v.name): \(o.name)"
+                        optionExtras[o.id] = o.extraPrice
+                    }
                 }
+            } catch {
+                throw AppError.message("Couldn't sync cart: \(describeDecodingError(error))")
             }
         }
 
@@ -457,17 +511,67 @@ final class SupabaseCartRepository: CartRepository, Sendable {
         }
 
         // Merge local-only lines when outlets match; remote wins otherwise.
+        // (Pure decision below — unit-tested in CartSyncDecisionTests.)
         let local = await store.loadAll()
-        let remoteKeys = Set(entities.map { "\($0.foodItemId)|\($0.customizationKey)" })
-        if let localOutlet = local.first?.outletId, localOutlet == outletId || outletId.isEmpty {
-            for l in local where !remoteKeys.contains("\(l.foodItemId)|\(l.customizationKey)") {
-                entities.append(l)
-            }
+        switch Self.resolveSync(
+            local: local,
+            remote: entities,
+            remoteOutlet: outletId,
+            remoteUpdated: Self.serverDate(cartRow.updatedAt)
+        ) {
+        case .keepLocal:
+            return
+        case .adopt(let merged):
+            try await store.clear()
+            for e in merged { try await store.upsert(e) }
+            await store.notifyChanged()
+        }
+    }
+
+    // MARK: - Sync decision (pure, unit-tested)
+
+    enum CartSyncDecision {
+        /// Keep the local store untouched (pushed on next mutation/checkout).
+        case keepLocal
+        /// Replace the local store with these entities.
+        case adopt([CartItemEntity])
+    }
+
+    /// Resolve a local-vs-remote cart conflict without I/O.
+    /// - Remote with zero items is authoritative only when fresher (e.g.
+    ///   cleared server-side after payment); stale residue must not wipe
+    ///   just-added local lines.
+    /// - Outlet mismatch: freshest side wins (ties → server).
+    /// - Same outlet (or empty remote outlet): merge local-only lines in.
+    static func resolveSync(
+        local: [CartItemEntity],
+        remote: [CartItemEntity],
+        remoteOutlet: String,
+        remoteUpdated: Date?
+    ) -> CartSyncDecision {
+        guard local.first != nil else { return .adopt(remote) }
+
+        let localNewest = local.map(\.createdAt).max()
+        func localIsFresher() -> Bool {
+            guard let remoteUpdated, let localNewest else { return false }
+            return localNewest.addingTimeInterval(syncSkewTolerance) > remoteUpdated
         }
 
-        try await store.clear()
-        for e in entities { try await store.upsert(e) }
-        await store.notifyChanged()
+        if remote.isEmpty {
+            return localIsFresher() ? .keepLocal : .adopt(remote)
+        }
+
+        if let localOutlet = local.first?.outletId,
+           !remoteOutlet.isEmpty, localOutlet != remoteOutlet {
+            return localIsFresher() ? .keepLocal : .adopt(remote)
+        }
+
+        var merged = remote
+        let remoteKeys = Set(remote.map { "\($0.foodItemId)|\($0.customizationKey)" })
+        for l in local where !remoteKeys.contains("\(l.foodItemId)|\(l.customizationKey)") {
+            merged.append(l)
+        }
+        return .adopt(merged)
     }
 
     /// Push local cart → backend. Throws on failure (checkout calls this

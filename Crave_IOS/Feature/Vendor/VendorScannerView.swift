@@ -148,6 +148,13 @@ struct QRScannerRepresentable: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: QRScannerViewController, context: Context) {}
+
+    func dismantleUIViewController(_ uiViewController: QRScannerViewController, coordinator: ()) {
+        // Stop the session when the branch unmounts (error/verified screens
+        // replace the scanner): otherwise the camera keeps running behind
+        // the result screen until the view disappears.
+        uiViewController.stopSession()
+    }
 }
 
 final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
@@ -181,6 +188,10 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        stopSession()
+    }
+
+    func stopSession() {
         session?.stopRunning()
     }
 

@@ -77,4 +77,12 @@ final class RazorpayService: NSObject, PaymentCompletionWithDataDelegate, Paymen
         checkout = nil
         return cont
     }
+
+    /// Abandon a sheet wait that will never complete (timeout, user cancel).
+    /// The native sheet can't be dismissed programmatically; resolving stale
+    /// as `.cancelled` keeps the state machine consistent. A late real
+    /// callback after abandon finds no continuation and is ignored.
+    func abandon() {
+        takeContinuation()?.resume(returning: .cancelled)
+    }
 }

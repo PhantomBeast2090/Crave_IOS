@@ -6,41 +6,25 @@ import XCTest
 /// order (never cancel a possibly-captured order), and placement is gated.
 @MainActor
 final class CheckoutViewModelTests: XCTestCase {
-    private func makeCart() -> Cart {
-        Cart(
-            outletId: "outlet-1", outletName: "Java Green",
-            items: [CartItem(
-                id: "line-1", foodItemId: "food-1", foodName: "Masala Dosa",
-                foodImageUrl: nil, outletId: "outlet-1", price: 100,
-                quantity: 1, selectedCustomizations: [], isVeg: true,
-                specialInstructions: nil
-            )],
-            subtotal: 100, tax: 5, total: 105, estimatedPrepMinutes: 10
-        )
-    }
-
-    private func makeSlot() -> PickupSlot {
-        PickupSlot(
-            id: "slot-1", outletId: "outlet-1", startTime: "12:30",
-            endTime: "12:40", date: "2026-09-15", capacity: 10,
-            bookedCount: 0, status: .available
-        )
-    }
-
     private func makeVM(
-        orders: FakeOrders = FakeOrders(),
-        payments: FakePayments = FakePayments(),
-        cartRepo: FakeCart = FakeCart(),
-        sheet: FakeSheet = FakeSheet()
+        orders: FakeOrders? = nil,
+        payments: FakePayments? = nil,
+        cartRepo: FakeCart? = nil,
+        sheet: FakeSheet? = nil
     ) -> (CheckoutViewModel, FakeOrders, FakePayments, FakeCart, FakeSheet) {
+        let set = makeFakeRepositories()
+        let resolvedOrders = orders ?? set.orders
+        let resolvedPayments = payments ?? set.payments
+        let resolvedCart = cartRepo ?? set.cart
+        let resolvedSheet = sheet ?? set.sheet
         let repo = DefaultAppRepository(
-            outlets: StubOutlets(), food: StubFood(), cart: cartRepo,
-            orders: orders, notifications: StubNotifications(),
-            payments: payments, admin: StubAdmin()
+            outlets: StubOutlets(), food: StubFood(), cart: resolvedCart,
+            orders: resolvedOrders, notifications: StubNotifications(),
+            payments: resolvedPayments, admin: StubAdmin()
         )
-        let vm = CheckoutViewModel(cart: makeCart(), repository: repo, sheet: sheet)
-        vm.selectedSlot = makeSlot()
-        return (vm, orders, payments, cartRepo, sheet)
+        let vm = CheckoutViewModel(cart: Fixtures.cart(), repository: repo, sheet: resolvedSheet)
+        vm.selectedSlot = Fixtures.slot()
+        return (vm, resolvedOrders, resolvedPayments, resolvedCart, resolvedSheet)
     }
 
     func testHappyPathClearsCartOnlyAfterVerification() async {
@@ -101,5 +85,71 @@ final class CheckoutViewModelTests: XCTestCase {
         // No slot selected → cannot place.
         vm.selectedSlot = nil
         XCTAssertFalse(vm.canPlaceOrder)
+    }
+
+    func testMainButtonReverifiesInsteadOfCancellingPaidOrder() async {
+        let (vm, orders, payments, _, sheet) = makeVM()
+        sheet.result = .success(paymentId: "pay-1", orderId: "rzp-order-1", signature: "sig")
+        payments.verifyFailuresRemaining = 1
+
+        await vm.placeOrder() // verify fails → .error with context retained
+        if case .error = vm.flowState {} else {
+            return XCTFail("expected error, got \(vm.flowState)")
+        }
+
+        await vm.placeOrder() // main button: must re-verify, not cancel + re-place
+
+        if case .success = vm.flowState {} else {
+            return XCTFail("expected success, got \(vm.flowState)")
+        }
+        XCTAssertTrue(orders.cancelledIds.isEmpty, "main button must never cancel a possibly-captured order")
+        XCTAssertEqual(orders.placedOrders.count, 1)
+        XCTAssertEqual(payments.verifyCalls.count, 2)
+    }
+
+    func testCancelAwaitingPaymentAbandonsHungSheet() async {
+        @MainActor
+        final class HungSheet: PaymentSheetProvider {
+            private(set) var abandoned = false
+            func pay(keyId: String, amountPaise: Int, razorpayOrderId: String,
+                     outletName: String, email: String?) async -> RazorpaySheetResult {
+                // Never resolves until abandoned (killed native sheet).
+                while !abandoned { try? await Task.sleep(nanoseconds: 10_000_000) }
+                return .cancelled
+            }
+            func abandon() { abandoned = true }
+        }
+        let orders = FakeOrders()
+        let repo = DefaultAppRepository(
+            outlets: StubOutlets(), food: StubFood(), cart: FakeCart(),
+            orders: orders, notifications: StubNotifications(),
+            payments: FakePayments(), admin: StubAdmin()
+        )
+        let cart = Cart(outletId: "outlet-1", outletName: "Java Green",
+                        items: [CartItem(id: "l1", foodItemId: "f1", foodName: "Dosa",
+                                         foodImageUrl: nil, outletId: "outlet-1", price: 100,
+                                         quantity: 1, selectedCustomizations: [], isVeg: true,
+                                         specialInstructions: nil)],
+                        subtotal: 100, tax: 5, total: 105, estimatedPrepMinutes: 10)
+        let hungVM = CheckoutViewModel(cart: cart, repository: repo, sheet: HungSheet())
+        hungVM.selectedSlot = PickupSlot(id: "slot-1", outletId: "outlet-1", startTime: "12:30",
+                                         endTime: "12:40", date: "2026-09-15", capacity: 10,
+                                         bookedCount: 0, status: .available)
+        let placing = Task { await hungVM.placeOrder() }
+        // Wait until the VM reaches awaitingPayment, then cancel.
+        for _ in 0..<200 {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            if case .awaitingPayment = hungVM.flowState { break }
+        }
+        if case .awaitingPayment = hungVM.flowState {} else {
+            placing.cancel()
+            return XCTFail("never reached awaitingPayment, got \(hungVM.flowState)")
+        }
+        hungVM.cancelAwaitingPayment()
+        await placing.value
+        if case .paymentCancelled = hungVM.flowState {} else {
+            return XCTFail("expected paymentCancelled, got \(hungVM.flowState)")
+        }
+        XCTAssertTrue(orders.cancelledIds.isEmpty)
     }
 }

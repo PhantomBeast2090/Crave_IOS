@@ -12,9 +12,10 @@
 		4F64E69000000000000000C1 /* CartMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000C3 /* CartMathTests.swift */; };
 		4F64E69000000000000000C2 /* DecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000C4 /* DecodingTests.swift */; };
 		4F64E69000000000000000D1 /* SwiftDataCartStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000D3 /* SwiftDataCartStoreTests.swift */; };
-		4F64E69000000000000000D2 /* CheckoutFakes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000D4 /* CheckoutFakes.swift */; };
+		4F64E69000000000000000D2 /* Fixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000D4 /* Fixtures.swift */; };
 		4F64E69000000000000000D5 /* CheckoutViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000D6 /* CheckoutViewModelTests.swift */; };
 		4F64E69000000000000000D8 /* FoodDetailViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000D7 /* FoodDetailViewModelTests.swift */; };
+		4F64E69000000000000000D9 /* CartSyncDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000DA /* CartSyncDecisionTests.swift */; };
 		4F64E69000000000000000E1 /* AcceptanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000E3 /* AcceptanceTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -40,9 +41,10 @@
 		4F64E69000000000000000C3 /* CartMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CartMathTests.swift; sourceTree = "<group>"; };
 		4F64E69000000000000000C4 /* DecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecodingTests.swift; sourceTree = "<group>"; };
 		4F64E69000000000000000D3 /* SwiftDataCartStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftDataCartStoreTests.swift; sourceTree = "<group>"; };
-		4F64E69000000000000000D4 /* CheckoutFakes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckoutFakes.swift; sourceTree = "<group>"; };
+		4F64E69000000000000000D4 /* Fixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Fixtures.swift; sourceTree = "<group>"; };
 		4F64E69000000000000000D6 /* CheckoutViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckoutViewModelTests.swift; sourceTree = "<group>"; };
 		4F64E69000000000000000D7 /* FoodDetailViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodDetailViewModelTests.swift; sourceTree = "<group>"; };
+		4F64E69000000000000000DA /* CartSyncDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CartSyncDecisionTests.swift; sourceTree = "<group>"; };
 		4F64E69000000000000000C5 /* Crave_IOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Crave_IOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4F64E69000000000000000E3 /* AcceptanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceTests.swift; sourceTree = "<group>"; };
 		4F64E69000000000000000E5 /* Crave_IOUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Crave_IOUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -109,9 +111,10 @@
 				4F64E69000000000000000C3 /* CartMathTests.swift */,
 				4F64E69000000000000000C4 /* DecodingTests.swift */,
 				4F64E69000000000000000D3 /* SwiftDataCartStoreTests.swift */,
-				4F64E69000000000000000D4 /* CheckoutFakes.swift */,
+				4F64E69000000000000000D4 /* Fixtures.swift */,
 				4F64E69000000000000000D6 /* CheckoutViewModelTests.swift */,
 				4F64E69000000000000000D7 /* FoodDetailViewModelTests.swift */,
+				4F64E69000000000000000DA /* CartSyncDecisionTests.swift */,
 			);
 			path = Crave_IOSTests;
 			sourceTree = "<group>";
@@ -274,9 +277,10 @@
 				4F64E69000000000000000C1 /* CartMathTests.swift in Sources */,
 				4F64E69000000000000000C2 /* DecodingTests.swift in Sources */,
 				4F64E69000000000000000D1 /* SwiftDataCartStoreTests.swift in Sources */,
-				4F64E69000000000000000D2 /* CheckoutFakes.swift in Sources */,
+				4F64E69000000000000000D2 /* Fixtures.swift in Sources */,
 				4F64E69000000000000000D5 /* CheckoutViewModelTests.swift in Sources */,
 				4F64E69000000000000000D8 /* FoodDetailViewModelTests.swift in Sources */,
+				4F64E69000000000000000D9 /* CartSyncDecisionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

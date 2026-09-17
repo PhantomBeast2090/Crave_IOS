@@ -1,9 +1,10 @@
 import Foundation
 @testable import Crave_IOS
 
-/// Minimal Sendable fakes for repository protocols, so ViewModel business
-/// logic can be tested without the network. Only the members exercised by
-/// current tests are functional; everything else returns empty values.
+/// Shared test fixtures: Sendable fakes for all repository protocols plus
+/// builders for domain models, so ViewModel business logic can be tested
+/// without the network. Only the members exercised by current tests are
+/// functional; everything else returns empty values.
 
 final class FakeOrders: OrderRepository, @unchecked Sendable {
     var placedOrders: [Order] = []
@@ -122,11 +123,13 @@ final class FakeCart: CartRepository, @unchecked Sendable {
 @MainActor
 final class FakeSheet: PaymentSheetProvider {
     var result: RazorpaySheetResult = .cancelled
+    var abandonCount = 0
     nonisolated init() {}
     func pay(keyId: String, amountPaise: Int, razorpayOrderId: String,
              outletName: String, email: String?) async -> RazorpaySheetResult {
         result
     }
+    func abandon() { abandonCount += 1 }
 }
 
 final class StubOutlets: OutletRepository, @unchecked Sendable {
@@ -170,4 +173,80 @@ final class StubAdmin: AdminRepository, @unchecked Sendable {
         throw AppError.message("unimplemented in stub")
     }
     func toggleOutletStatus(outletId: String, isOpen: Bool) async throws {}
+}
+
+// MARK: - Domain fixture builders
+
+nonisolated enum Fixtures {
+    static func cartItem(
+        id: String = "line-1",
+        foodItemId: String = "food-1",
+        foodName: String = "Masala Dosa",
+        outletId: String = "outlet-1",
+        price: Double = 100,
+        quantity: Int = 1
+    ) -> CartItem {
+        CartItem(
+            id: id, foodItemId: foodItemId, foodName: foodName,
+            foodImageUrl: nil, outletId: outletId, price: price,
+            quantity: quantity, selectedCustomizations: [], isVeg: true,
+            specialInstructions: nil
+        )
+    }
+
+    static func cart(
+        outletId: String = "outlet-1",
+        outletName: String = "Java Green",
+        items: [CartItem]? = nil
+    ) -> Cart {
+        let lines = items ?? [cartItem(outletId: outletId)]
+        let subtotal = lines.reduce(0) { $0 + $1.price * Double($1.quantity) }
+        let tax = (subtotal * 0.05 * 100).rounded() / 100
+        return Cart(
+            outletId: outletId, outletName: outletName, items: lines,
+            subtotal: subtotal, tax: tax, total: subtotal + tax,
+            estimatedPrepMinutes: 10
+        )
+    }
+
+    static func slot(
+        id: String = "slot-1",
+        outletId: String = "outlet-1",
+        status: SlotStatus = .available
+    ) -> PickupSlot {
+        PickupSlot(
+            id: id, outletId: outletId, startTime: "12:30",
+            endTime: "12:40", date: "2026-09-15", capacity: 10,
+            bookedCount: 0, status: status
+        )
+    }
+}
+
+// MARK: - Repository factory
+
+/// A `DefaultAppRepository` wired with fakes, plus handles to the fakes for
+/// assertions. Prefer this over hand-rolling repositories in new tests.
+struct FakeRepositorySet {
+    let repository: DefaultAppRepository
+    let orders: FakeOrders
+    let payments: FakePayments
+    let cart: FakeCart
+    let sheet: FakeSheet
+}
+
+@MainActor
+func makeFakeRepositories() -> FakeRepositorySet {
+    let orders = FakeOrders()
+    let payments = FakePayments()
+    let cart = FakeCart()
+    let sheet = FakeSheet()
+    let repository = DefaultAppRepository(
+        outlets: StubOutlets(), food: StubFood(), cart: cart,
+        orders: orders, notifications: StubNotifications(),
+        payments: payments, admin: StubAdmin()
+    )
+    return FakeRepositorySet(
+        repository: repository, orders: orders,
+        payments: payments, cart: cart, sheet: sheet
+    )
 }

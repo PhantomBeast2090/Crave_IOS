@@ -48,8 +48,9 @@ final class FoodDetailViewModel {
             let newStatus = try await repository.food.toggleFavorite(foodItemId: item.id)
             item.isFavorite = newStatus
             state = .loaded(item)
+        } catch is CancellationError {
         } catch {
-            print("Failed to toggle favorite: \(error)")
+            addError = "Couldn't update favorite. Check your connection and try again."
         }
     }
 

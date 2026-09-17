@@ -26,6 +26,8 @@ struct ProfileView: View {
                         await viewModel?.save(name: name, phone: phone, registrationNumber: reg) ?? false
                     }
                 }
+            } else {
+                GagLoadingView(message: "Loading profile…")
             }
         }
         .confirmationDialog("Sign out of Crave?", isPresented: $showSignOutConfirmation, titleVisibility: .visible) {

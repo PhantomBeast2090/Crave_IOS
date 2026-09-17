@@ -85,6 +85,11 @@ struct OrderDetailView: View {
                 }
 
                 actionsSection(order: order, viewModel: viewModel)
+                if let cancelError = viewModel.cancelError {
+                    Text(cancelError)
+                        .font(GagTypography.labelMedium)
+                        .foregroundStyle(GagColors.error)
+                }
             }
             .padding(GagShapes.spacingL)
         }
@@ -188,7 +193,7 @@ struct OrderDetailView: View {
         if order.status.isActive && order.status != .ready {
             GagButton(title: "Track Order", action: { showTracking = true })
         }
-        if order.status == .placed {
+        if order.status == .placed || order.status == .created {
             GagButton(
                 title: "Cancel Order",
                 style: .danger,

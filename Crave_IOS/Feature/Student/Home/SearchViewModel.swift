@@ -15,6 +15,7 @@ final class SearchViewModel {
     private let repository: AppRepository
     var filter = FoodSearchFilter()
     private var searchTask: Task<Void, Never>?
+    private var searchGeneration = 0
     
     init(repository: AppRepository) {
         self.repository = repository
@@ -46,18 +47,21 @@ final class SearchViewModel {
             state = .idle
             return
         }
-        
+
+        // Generation guard: cancelling a Task does not abort the in-flight
+        // RPC, so a slow earlier query must never overwrite newer results.
+        searchGeneration += 1
+        let generation = searchGeneration
+
         state = .loading
-        
+
         do {
             let results = try await repository.food.searchFood(filter: filter)
-            if !Task.isCancelled {
-                state = .results(results)
-            }
+            guard generation == searchGeneration, !Task.isCancelled else { return }
+            state = .results(results)
         } catch {
-            if !Task.isCancelled {
-                state = .error(error.localizedDescription)
-            }
+            guard generation == searchGeneration, !Task.isCancelled else { return }
+            state = .error(error.localizedDescription)
         }
     }
     

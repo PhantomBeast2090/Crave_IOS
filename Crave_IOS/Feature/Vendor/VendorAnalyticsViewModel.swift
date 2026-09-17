@@ -55,7 +55,13 @@ final class VendorAnalyticsViewModel {
         } catch is CancellationError {
             if case .loading = state { state = .idle }
         } catch {
-            state = .error(message: error.localizedDescription)
+            // Preserve loaded tiles on refresh failure (offline-friendly);
+            // only a first load with no data becomes an error.
+            if case .loaded = state {
+                print("⚠️ [VendorAnalytics] refresh failed: \(error)")
+            } else {
+                state = .error(message: error.localizedDescription)
+            }
         }
     }
 }

@@ -45,13 +45,22 @@ final class CartViewModel {
             guard let self else { return }
             self.isLoading = true
             defer { self.isLoading = false }
-            do {
-                try await self.repository.syncFromBackend()
-            } catch is CancellationError {
-                // Ignore — view went away.
-            } catch {
-                // Offline on first load is fine; local cart still shows.
-                print("⚠️ [CartViewModel] backend sync failed: \(error)")
+            await self.sync()
+        }
+    }
+
+    /// Pull-to-refresh entry point (also used by `start`). Sync failures are
+    /// silent when local items exist (offline-friendly); when the cart ends
+    /// up empty the error is shown so the user isn't left guessing.
+    func sync() async {
+        do {
+            try await repository.syncFromBackend()
+        } catch is CancellationError {
+            // Ignore — view went away.
+        } catch {
+            print("⚠️ [CartViewModel] backend sync failed: \(error)")
+            if isEmpty {
+                errorMessage = error.localizedDescription
             }
         }
     }

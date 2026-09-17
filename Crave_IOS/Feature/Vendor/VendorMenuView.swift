@@ -39,6 +39,13 @@ struct VendorMenuView: View {
                             }
                         }
                         .disabled((Double(editedPrice) ?? 0) <= 0)
+                        // updatePrice surfaces failures on the VM; the sheet
+                        // must show them (the list behind is not visible).
+                        if let actionError = viewModel?.actionError {
+                            Text(actionError)
+                                .font(GagTypography.labelMedium)
+                                .foregroundStyle(GagColors.error)
+                        }
                     }
                 }
                 .navigationTitle("Edit Price")

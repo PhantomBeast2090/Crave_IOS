@@ -109,12 +109,24 @@ final class CheckoutViewModel {
 
     // MARK: - Placement
 
+    /// Sheet waits have no intrinsic timeout: if the native sheet is killed
+    /// or its delegate never fires, abandon the wait so the user isn't stuck.
+    /// Razorpay UPI/bank flows can legitimately take minutes, hence 300s.
+    private static let sheetTimeout: Duration = .seconds(300)
+    private var sheetTimeoutTask: Task<Void, Never>?
+
     func placeOrder() async {
         guard let slot = selectedSlot, !cart.isEmpty else { return }
         // Retry is only allowed from terminal failure states.
         switch flowState {
         case .idle, .error, .paymentCancelled: break
         default: return
+        }
+        // A verify-stage failure must re-verify the SAME order — even via the
+        // main button. Cancelling here could cancel captured payment.
+        if case .error = flowState, pendingVerification != nil {
+            await retryVerification()
+            return
         }
         flowState = .placing
 
@@ -146,6 +158,7 @@ final class CheckoutViewModel {
             flowState = .awaitingPayment(order: order)
             let details = try await repository.payments.createRazorpayOrder(orderId: order.id)
 
+            armSheetTimeout(for: order.id)
             let sheetResult = await sheet.pay(
                 keyId: details.keyId,
                 amountPaise: details.amount,
@@ -153,6 +166,7 @@ final class CheckoutViewModel {
                 outletName: cart.outletName,
                 email: userEmail
             )
+            disarmSheetTimeout()
 
             switch sheetResult {
             case .success(let paymentId, let rzOrderId, let signature):
@@ -178,6 +192,34 @@ final class CheckoutViewModel {
         } catch {
             flowState = .error(message: error.localizedDescription)
         }
+    }
+
+    /// User escape hatch while waiting on the sheet: abandon the wait and
+    /// keep the order + cart intact for a later retry.
+    func cancelAwaitingPayment() {
+        guard case .awaitingPayment(let order) = flowState else { return }
+        disarmSheetTimeout()
+        sheet.abandon()
+        flowState = .paymentCancelled(orderId: order.id)
+    }
+
+    private func armSheetTimeout(for orderId: String) {
+        disarmSheetTimeout()
+        sheetTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.sheetTimeout)
+            guard let self, !Task.isCancelled else { return }
+            // Only fire if still waiting on the same order; a completed sheet
+            // disarms first, and a late delegate resolves to `.cancelled`.
+            guard case .awaitingPayment(let waiting) = self.flowState,
+                  waiting.id == orderId else { return }
+            self.sheet.abandon()
+            self.flowState = .paymentCancelled(orderId: orderId)
+        }
+    }
+
+    private func disarmSheetTimeout() {
+        sheetTimeoutTask?.cancel()
+        sheetTimeoutTask = nil
     }
 
     /// Server-side verification + post-payment cleanup. Throws on failure so

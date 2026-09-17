@@ -73,8 +73,10 @@ final class OrderTrackingViewModel {
     }
 
     func retry() async {
+        // Full restart: reload detail AND resubscribe (a dead channel alone
+        // would leave the timeline frozen with no indicator).
         state = .idle
-        await load()
+        start()
     }
 
     private func applyStatus(_ status: OrderStatus) async {

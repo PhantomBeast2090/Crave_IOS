@@ -20,6 +20,10 @@ struct CartView: View {
         .sheet(isPresented: $showCheckout) {
             if let viewModel, let cart = viewModel.cart {
                 CheckoutView(cart: cart)
+            } else {
+                // Narrow race (cart cleared between tap and sheet build):
+                // loading fallback instead of a blank sheet.
+                GagLoadingView(message: "Loading cart…")
             }
         }
     }
@@ -78,7 +82,7 @@ struct CartView: View {
             .scrollContentBackground(.hidden)
             .background(AppTheme.screenBackground)
             .refreshable {
-                do { try await appState.repository.cart.syncFromBackend() } catch { }
+                await viewModel.sync()
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

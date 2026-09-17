@@ -1,8 +1,6 @@
 import SwiftUI
-import SwiftData
 
 struct FavoritesView: View {
-    @Environment(\.modelContext) private var modelContext
     @Environment(AppState.self) private var appState
     @State private var favorites: [FoodItem] = []
     @State private var isLoading = true

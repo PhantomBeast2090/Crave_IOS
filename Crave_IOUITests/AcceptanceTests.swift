@@ -177,10 +177,14 @@ final class CraveAcceptanceTests: XCTestCase {
         shoot("01-login-light")
         assertLightScreen("login screen in light mode")
 
-        // Register sheet opens with all fields + validation.
+        // Register sheet opens with all fields + validation. Password fields
+        // carry unique identifiers (registerPassword/registerConfirm vs the
+        // login screen's loginPassword), so query them directly: SwiftUI
+        // sheets do not appear under app.sheets in this AX hierarchy.
         app.buttons["Create an account"].tap()
         XCTAssertTrue(app.textFields["registerName"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.sheets.element.secureTextFields.count > 0)
+        XCTAssertTrue(app.secureTextFields["registerPassword"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.secureTextFields["registerConfirm"].exists)
         shoot("01-register-light")
     }
 
@@ -198,16 +202,29 @@ final class CraveAcceptanceTests: XCTestCase {
         app.textFields["registerName"].typeText("UI Test")
         app.textFields["registerEmail"].tap()
         app.textFields["registerEmail"].typeText("craveuitest\(stamp)@uberip.com")
-        // Secure fields are scoped to the sheet (the login screen behind it
-        // also has secure fields) and queried by index.
-        let sheet = app.sheets.element
-        XCTAssertTrue(sheet.waitForExistence(timeout: 10))
-        let passwords = sheet.secureTextFields
-        XCTAssertTrue(passwords.element.waitForExistence(timeout: 10))
-        passwords.element(boundBy: 0).tap()
-        passwords.element(boundBy: 0).typeText("Test1234!")
-        passwords.element(boundBy: 1).tap()
-        passwords.element(boundBy: 1).typeText("Test1234!")
+        // Password fields have unique identifiers (see test01), so target
+        // them directly instead of scoping to the sheet element.
+        let registerPassword = app.secureTextFields["registerPassword"]
+        XCTAssertTrue(registerPassword.waitForExistence(timeout: 10))
+        registerPassword.tap()
+        registerPassword.typeText("Test1234!")
+        let registerConfirm = app.secureTextFields["registerConfirm"]
+        XCTAssertTrue(registerConfirm.waitForExistence(timeout: 10))
+        // The confirm field starts below the fold with the keyboard up, and
+        // tapping it directly can stale the element. Dismiss the keyboard if
+        // present, scroll the field into view, then interact.
+        if app.keyboards.count > 0 {
+            app.keyboards.buttons["return"].tap()
+        }
+        var revealed = false
+        for _ in 0..<5 {
+            if app.secureTextFields["registerConfirm"].isHittable { revealed = true; break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(revealed, "confirm field must scroll into view")
+        let registerConfirmFresh = app.secureTextFields["registerConfirm"]
+        registerConfirmFresh.tap()
+        registerConfirmFresh.typeText("Test1234!")
         app.buttons["createAccountButton"].tap()
 
         // Either the verify dialog (confirmation ON — expected) …

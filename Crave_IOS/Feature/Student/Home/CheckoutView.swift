@@ -31,11 +31,15 @@ struct CheckoutView: View {
             .navigationDestination(isPresented: $showTracking) {
                 if let successOrder {
                     OrderTrackingView(orderId: successOrder.id)
+                } else {
+                    GagLoadingView(message: "Loading order…")
                 }
             }
             .sheet(isPresented: $showQR) {
                 if let successOrder {
                     NavigationStack { OrderQRView(orderId: successOrder.id) }
+                } else {
+                    GagLoadingView(message: "Loading order…")
                 }
             }
         }
@@ -147,9 +151,16 @@ struct CheckoutView: View {
                 .padding(.vertical, GagShapes.spacingL)
 
             case .empty:
-                Text("No pickup slots available for this outlet today.")
-                    .font(GagTypography.bodyMedium)
-                    .foregroundStyle(GagColors.onSurfaceVariant)
+                VStack(spacing: GagShapes.spacingS) {
+                    Text("No pickup slots available for this outlet today.")
+                        .font(GagTypography.bodyMedium)
+                        .foregroundStyle(GagColors.onSurfaceVariant)
+                    Button("Check Again") {
+                        Task { await viewModel.retrySlots() }
+                    }
+                    .font(GagTypography.labelLarge)
+                    .foregroundStyle(GagColors.brandOrange)
+                }
 
             case .error(let message):
                 VStack(spacing: GagShapes.spacingS) {
@@ -241,11 +252,21 @@ struct CheckoutView: View {
                     .foregroundStyle(GagColors.onSurfaceVariant)
             }
         case .awaitingPayment:
-            HStack {
-                ProgressView().tint(GagColors.brandOrange)
-                Text("Waiting for payment…")
-                    .font(GagTypography.bodyMedium)
-                    .foregroundStyle(GagColors.onSurfaceVariant)
+            VStack(spacing: GagShapes.spacingS) {
+                HStack {
+                    ProgressView().tint(GagColors.brandOrange)
+                    Text("Waiting for payment…")
+                        .font(GagTypography.bodyMedium)
+                        .foregroundStyle(GagColors.onSurfaceVariant)
+                }
+                // Escape hatch: the native sheet can be killed without a
+                // callback (backgrounding, OS reclaim). Cancelling keeps the
+                // order and cart intact for a later retry.
+                Button("Cancel Payment") {
+                    viewModel.cancelAwaitingPayment()
+                }
+                .font(GagTypography.labelLarge)
+                .foregroundStyle(GagColors.brandOrange)
             }
         case .verifying:
             HStack {
