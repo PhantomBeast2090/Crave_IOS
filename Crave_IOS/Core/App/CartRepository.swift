@@ -89,7 +89,10 @@ protocol CartLocalStore: Sendable {
     func upsert(_ item: CartItemEntity) async throws
     func delete(id: String) async throws
     func clear() async throws
-    func observe() -> AsyncStream<[CartItemEntity]>
+    /// Stream cart snapshots. The element is the Sendable `Cart?` value (not
+    /// `CartItemEntity`): SwiftData `@Model` instances are context-confined
+    /// and must never cross actor/Sendable boundaries.
+    func observe() -> AsyncStream<Cart?>
     func notifyChanged() async
 }
 

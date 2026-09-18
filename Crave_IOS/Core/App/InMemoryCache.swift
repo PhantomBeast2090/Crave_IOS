@@ -8,25 +8,25 @@ import SwiftData
 final class InMemoryOutletCache: OutletLocalCache {
     private var outlets: [String: Outlet] = [:]
     private var continuations: [UUID: AsyncStream<[Outlet]>.Continuation] = [:]
-    
+
     func observeOutlets() -> AsyncStream<[Outlet]> {
         AsyncStream { continuation in
             let id = UUID()
             continuations[id] = continuation
             continuation.yield(Array(outlets.values))
-            
-            continuation.onTermination = { @Sendable _ in
+
+            continuation.onTermination = { _ in
                 Task { @MainActor in
                     self.removeContinuation(id)
                 }
             }
         }
     }
-    
+
     private func removeContinuation(_ id: UUID) {
         continuations.removeValue(forKey: id)
     }
-    
+
     private func notify() {
         let items = Array(outlets.values)
         for continuation in continuations.values {
@@ -56,26 +56,26 @@ final class InMemoryFoodCache: FoodLocalCache {
     private var foodItems: [String: FoodItem] = [:]
     private var favoriteIds: Set<String> = []
     private var continuations: [UUID: AsyncStream<[FoodItem]>.Continuation] = [:]
-    
+
     func observeFavorites() -> AsyncStream<[FoodItem]> {
         AsyncStream { continuation in
             let id = UUID()
             continuations[id] = continuation
             let favs = favoriteIds.compactMap { foodItems[$0] }
             continuation.yield(favs)
-            
-            continuation.onTermination = { @Sendable _ in
+
+            continuation.onTermination = { _ in
                 Task { @MainActor in
                     self.removeContinuation(id)
                 }
             }
         }
     }
-    
+
     private func removeContinuation(_ id: UUID) {
         continuations.removeValue(forKey: id)
     }
-    
+
     private func notifyFavorites() {
         let favs = favoriteIds.compactMap { foodItems[$0] }
         for continuation in continuations.values {
@@ -106,7 +106,7 @@ final class InMemoryFoodCache: FoodLocalCache {
 @MainActor
 final class InMemoryCartStore: CartLocalStore {
     private var items: [String: CartItemEntity] = [:]
-    private var continuations: [UUID: AsyncStream<[CartItemEntity]>.Continuation] = [:]
+    private var continuations: [UUID: AsyncStream<Cart?>.Continuation] = [:]
 
     func loadAll() async -> [CartItemEntity] {
         items.values.sorted { $0.createdAt < $1.createdAt }
@@ -124,23 +124,38 @@ final class InMemoryCartStore: CartLocalStore {
         items.removeAll()
     }
 
-    func observe() -> AsyncStream<[CartItemEntity]> {
+    func observe() -> AsyncStream<Cart?> {
         AsyncStream { continuation in
             let id = UUID()
             continuations[id] = continuation
-            Task { @MainActor in
-                continuation.yield(await self.loadAll())
-            }
-            continuation.onTermination = { @Sendable [weak self] _ in
-                Task { @MainActor in self?.continuations.removeValue(forKey: id) }
+            continuation.yield(Self.snapshot(of: items))
+
+            continuation.onTermination = { _ in
+                Task { @MainActor in
+                    self.removeContinuation(id)
+                }
             }
         }
     }
 
+    private func removeContinuation(_ id: UUID) {
+        continuations.removeValue(forKey: id)
+    }
+
     func notifyChanged() async {
-        let items = await loadAll()
+        let snapshot = Self.snapshot(of: items)
         for continuation in continuations.values {
-            continuation.yield(items)
+            continuation.yield(snapshot)
         }
+    }
+
+    private static func snapshot(of items: [String: CartItemEntity]) -> Cart? {
+        let entities = items.values.sorted { $0.createdAt < $1.createdAt }
+        guard let first = entities.first else { return nil }
+        return CartMath.snapshot(
+            outletId: first.outletId,
+            outletName: first.outletName,
+            items: entities.map { $0.toCartItem() }
+        )
     }
 }

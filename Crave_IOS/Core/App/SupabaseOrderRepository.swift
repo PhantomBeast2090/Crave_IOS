@@ -91,10 +91,16 @@ final class SupabaseOrderRepository: OrderRepository, Sendable {
             let id = UUID()
             orderContinuations[id] = continuation
             continuation.yield(loadCachedOrders())
-            continuation.onTermination = { @Sendable [weak self] _ in
-                Task { @MainActor in self?.orderContinuations.removeValue(forKey: id) }
+            continuation.onTermination = { _ in
+                Task { @MainActor in
+                    self.removeOrderContinuation(id)
+                }
             }
         }
+    }
+
+    private func removeOrderContinuation(_ id: UUID) {
+        orderContinuations.removeValue(forKey: id)
     }
 
     func activeOrder() async -> Order? {
@@ -255,7 +261,7 @@ final class SupabaseOrderRepository: OrderRepository, Sendable {
                     filter: .eq("id", value: orderId)
                 )
                 do {
-                    try await channel.subscribe()
+                    try await channel.subscribeWithError()
                 } catch {
                     print("⚠️ [Orders] realtime subscribe failed: \(error)")
                     continuation.finish()
@@ -272,23 +278,25 @@ final class SupabaseOrderRepository: OrderRepository, Sendable {
                 }
                 continuation.finish()
             }
-            continuation.onTermination = { @Sendable [weak self] _ in
+            continuation.onTermination = { _ in
                 task.cancel()
                 // Last observer out removes the channel; overlapping observers
-                // (e.g. stop+start on reappear) keep it alive. Serialized on
-                // MainActor so the count can't race.
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    let remaining = (self.statusChannelUses[orderId] ?? 1) - 1
-                    if remaining <= 0 {
-                        self.statusChannelUses.removeValue(forKey: orderId)
-                        let channel = self.client.realtimeV2.channel("order-\(orderId)")
-                        await self.client.realtimeV2.removeChannel(channel)
-                    } else {
-                        self.statusChannelUses[orderId] = remaining
-                    }
+                // (e.g. stop+start on reappear) keep it alive.
+                Task { @MainActor in
+                    await self.removeStatusChannel(orderId: orderId)
                 }
             }
+        }
+    }
+
+    private func removeStatusChannel(orderId: String) async {
+        let remaining = (statusChannelUses[orderId] ?? 1) - 1
+        if remaining <= 0 {
+            statusChannelUses.removeValue(forKey: orderId)
+            let channel = client.realtimeV2.channel("order-\(orderId)")
+            await client.realtimeV2.removeChannel(channel)
+        } else {
+            statusChannelUses[orderId] = remaining
         }
     }
 

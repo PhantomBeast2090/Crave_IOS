@@ -262,11 +262,13 @@ final class SupabaseCartRepository: CartRepository, Sendable {
     // MARK: - Reads
 
     func observeCart() -> AsyncStream<Cart?> {
-        let entities = store.observe()
+        // The store yields Sendable snapshots; this fan-out captures only
+        // Sendable values (no `self`), so no actor boundary is crossed.
+        let carts = store.observe()
         return AsyncStream { continuation in
             let task = Task { @MainActor in
-                for await list in entities {
-                    continuation.yield(Self.snapshot(from: list))
+                for await cart in carts {
+                    continuation.yield(cart)
                 }
                 continuation.finish()
             }

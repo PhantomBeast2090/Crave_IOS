@@ -132,8 +132,11 @@ final class CheckoutViewModel {
 
         do {
             // Cancel a stale order from a previous failed attempt first.
+            // Best-effort by design: if the cancel fails, the stale order
+            // lingers server-side but the new placement still proceeds (the
+            // returned order is intentionally discarded).
             if let stale = pendingOrderId {
-                try? await repository.orders.cancelOrder(orderId: stale, reason: "Payment retried or cancelled by user")
+                _ = try? await repository.orders.cancelOrder(orderId: stale, reason: "Payment retried or cancelled by user")
                 pendingOrderId = nil
             }
 

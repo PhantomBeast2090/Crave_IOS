@@ -39,7 +39,7 @@ final class SupabaseNotificationRepository: NotificationRepository, Sendable {
                     filter: .eq("user_id", value: uid)
                 )
                 do {
-                    try await channel.subscribe()
+                    try await channel.subscribeWithError()
                 } catch {
                     print("⚠️ [Notifications] realtime subscribe failed: \(error)")
                     continuation.finish()

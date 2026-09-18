@@ -125,7 +125,7 @@ final class SwiftDataFoodCache: FoodLocalCache {
 @MainActor
 final class SwiftDataCartStore: CartLocalStore {
     private let modelContainer: ModelContainer
-    private var continuations: [UUID: AsyncStream<[CartItemEntity]>.Continuation] = [:]
+    private var continuations: [UUID: AsyncStream<Cart?>.Continuation] = [:]
 
     init(modelContainer: ModelContainer) {
         self.modelContainer = modelContainer
@@ -169,23 +169,43 @@ final class SwiftDataCartStore: CartLocalStore {
         try context.save()
     }
 
-    func observe() -> AsyncStream<[CartItemEntity]> {
-        let id = UUID()
-        return AsyncStream { continuation in
+    func observe() -> AsyncStream<Cart?> {
+        AsyncStream { continuation in
+            let id = UUID()
             continuations[id] = continuation
-            Task { @MainActor in
-                continuation.yield(await self.loadAll())
-            }
-            continuation.onTermination = { @Sendable [weak self] _ in
-                Task { @MainActor in self?.continuations.removeValue(forKey: id) }
+            continuation.yield(Self.snapshot(container: modelContainer))
+
+            continuation.onTermination = { _ in
+                Task { @MainActor in
+                    self.removeContinuation(id)
+                }
             }
         }
     }
 
+    private func removeContinuation(_ id: UUID) {
+        continuations.removeValue(forKey: id)
+    }
+
     func notifyChanged() async {
-        let items = await loadAll()
+        let snapshot = Self.snapshot(container: modelContainer)
         for continuation in continuations.values {
-            continuation.yield(items)
+            continuation.yield(snapshot)
         }
+    }
+
+    /// Fetch + map on the caller's actor (observe/notify run `@MainActor`).
+    /// Entities never leave this function; only the value snapshot escapes.
+    @MainActor
+    private static func snapshot(container: ModelContainer) -> Cart? {
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<CartItemEntity>(sortBy: [SortDescriptor(\.createdAt)])
+        let entities = (try? context.fetch(descriptor)) ?? []
+        guard let first = entities.first else { return nil }
+        return CartMath.snapshot(
+            outletId: first.outletId,
+            outletName: first.outletName,
+            items: entities.map { $0.toCartItem() }
+        )
     }
 }

@@ -29,8 +29,11 @@ final class VendorScannerViewModel {
         case .authorized:
             cameraAuthorized = true
         case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-                Task { @MainActor in self?.cameraAuthorized = granted }
+            // Async variant: no @Sendable callback, no capture list. The
+            // fire-and-forget Task retains self until the one-shot call
+            // completes (no cycle: nothing stores the Task).
+            Task { @MainActor in
+                self.cameraAuthorized = await AVCaptureDevice.requestAccess(for: .video)
             }
         default:
             cameraAuthorized = false

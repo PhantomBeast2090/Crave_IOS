@@ -225,8 +225,8 @@ nonisolated struct OrderDto: Decodable, Sendable {
         } else {
             outletName = dtoString(c, .outletName)
         }
-        if let aliased = try? c.decodeIfPresent([OrderItemDto].self, forKey: .items) {
-            items = aliased ?? []
+        if let aliased: [OrderItemDto] = try? c.decodeIfPresent([OrderItemDto].self, forKey: .items) {
+            items = aliased
         } else {
             items = (try? c.decodeIfPresent([OrderItemDto].self, forKey: .rawItems)) ?? []
         }
