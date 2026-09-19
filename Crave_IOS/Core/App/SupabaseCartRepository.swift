@@ -75,6 +75,7 @@ private struct RemoteCartTotalsUpdate: Encodable, Sendable {
 
 private struct RemoteCartItemJoin: Decodable, Sendable {
     let id: String
+    let cartId: String
     let foodItemId: String
     let quantity: Int
     let price: Double
@@ -86,6 +87,7 @@ private struct RemoteCartItemJoin: Decodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, quantity, price
+        case cartId = "cart_id"
         case foodItemId = "food_item_id"
         case isVeg = "is_veg"
         case specialInstructions = "special_instructions"
@@ -105,6 +107,7 @@ private struct RemoteCartItemJoin: Decodable, Sendable {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
+        cartId = (try? c.decodeIfPresent(String.self, forKey: .cartId)) ?? ""
         foodItemId = (try? c.decodeIfPresent(String.self, forKey: .foodItemId)) ?? ""
         quantity = (try? c.decodeIfPresent(Int.self, forKey: .quantity)) ?? 1
         let d: Double? = try? c.decodeIfPresent(Double.self, forKey: .price)
@@ -326,12 +329,13 @@ final class SupabaseCartRepository: CartRepository, Sendable {
         let qty = min(quantity, CartMath.maxQuantity)
 
         let existing = await store.loadAll()
-        if let current = existing.first, current.outletId != foodItem.outletId {
-            throw CartError.outletConflict(currentOutletName: current.outletName)
-        }
 
+        // Multi-outlet: lines dedup within their outlet (same dish from two
+        // outlets stays two lines).
         let key = CartMath.customizationKey(customizations)
-        if let match = existing.first(where: { $0.foodItemId == foodItem.id && $0.customizationKey == key }) {
+        if let match = existing.first(where: {
+            $0.foodItemId == foodItem.id && $0.outletId == foodItem.outletId && $0.customizationKey == key
+        }) {
             match.quantity = min(match.quantity + qty, CartMath.maxQuantity)
             try await store.upsert(match)
         } else {
@@ -387,6 +391,20 @@ final class SupabaseCartRepository: CartRepository, Sendable {
         return cart
     }
 
+    @discardableResult
+    func setSlot(cartItemId: String, slotId: String?) async throws -> Cart {
+        let items = await store.loadAll()
+        guard let match = items.first(where: { $0.id == cartItemId }) else { throw CartError.emptyCart }
+        match.slotId = slotId
+        try await store.upsert(match)
+        await store.notifyChanged()
+        do { try await pushToBackend() } catch {
+            print("⚠️ [Cart] background sync failed: \(describeDecodingError(error))")
+        }
+        guard let cart = await currentCart() else { throw CartError.emptyCart }
+        return cart
+    }
+
     func clearCart() async throws {
         try await store.clear()
         await store.notifyChanged()
@@ -396,6 +414,29 @@ final class SupabaseCartRepository: CartRepository, Sendable {
                 try await client.from("carts").delete().eq("user_id", value: uid).execute()
             } catch {
                 print("⚠️ [Cart] backend clear failed: \(describeDecodingError(error))")
+            }
+        }
+    }
+
+    func clearSection(outletId: String) async throws {
+        for line in await store.loadAll() where line.outletId == outletId {
+            try await store.delete(id: line.id)
+        }
+        await store.notifyChanged()
+        // Best-effort backend delete of this outlet's row.
+        if let uid = userId {
+            do {
+                let rows: [RemoteCartRow] = try await client.from("carts")
+                    .select("id")
+                    .eq("user_id", value: uid)
+                    .eq("outlet_id", value: outletId)
+                    .execute()
+                    .value
+                for row in rows {
+                    try await client.from("carts").delete().eq("id", value: row.id).execute()
+                }
+            } catch {
+                print("⚠️ [Cart] backend section clear failed: \(describeDecodingError(error))")
             }
         }
     }
@@ -421,25 +462,27 @@ final class SupabaseCartRepository: CartRepository, Sendable {
     func syncFromBackend() async throws {
         guard let uid = userId else { return }
 
+        // All remote carts (one row per outlet after migration 016; a single
+        // legacy row before it). Failure keeps local untouched (see below).
         let remote: [RemoteCartRow]
         do {
             remote = try await client.from("carts")
                 .select()
                 .eq("user_id", value: uid)
                 .order("updated_at", ascending: false)
-                .limit(1)
                 .execute()
                 .value
         } catch {
             throw AppError.message("Couldn't sync cart: \(describeDecodingError(error))")
         }
-        guard let cartRow = remote.first else { return } // keep local; pushed later
+        guard !remote.isEmpty else { return } // keep local; pushed later
 
+        let cartIds = remote.map { $0.id }
         let itemRows: [RemoteCartItemJoin]
         do {
             itemRows = try await client.from("cart_items")
-                .select("id, food_item_id, quantity, price, is_veg, special_instructions, food_items(name, image_url, outlets(name))")
-                .eq("cart_id", value: cartRow.id)
+                .select("id, cart_id, food_item_id, quantity, price, is_veg, special_instructions, food_items(name, image_url, outlets(name))")
+                .in("cart_id", values: cartIds)
                 .execute()
                 .value
         } catch {
@@ -483,51 +526,82 @@ final class SupabaseCartRepository: CartRepository, Sendable {
             }
         }
 
-        let outletId = cartRow.outletId ?? ""
-        var entities: [CartItemEntity] = []
-        for item in itemRows {
-            let customs = (customsByItem[item.id] ?? []).map { rc -> SelectedCustomization in
-                let label = variantNames["\(rc.variantId)/\(rc.optionId)"] ?? ""
-                let parts = label.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-                return SelectedCustomization(
-                    customizationId: rc.variantId,
-                    customizationName: parts.first ?? "",
-                    optionId: rc.optionId,
-                    optionName: parts.count > 1 ? parts[1] : label,
-                    extraPrice: optionExtras[rc.optionId] ?? rc.extraPrice
+        let local = await store.loadAll()
+        var localByOutlet: [String: [CartItemEntity]] = [:]
+        for line in local {
+            localByOutlet[line.outletId, default: []].append(line)
+        }
+        let itemsByCart = Dictionary(grouping: itemRows, by: { $0.cartId })
+
+        // Resolve each remote outlet section independently with the same
+        // freshness policy (pure decision below — unit-tested). Local lines
+        // whose outlet has no remote row are kept (pushed on next mutation).
+        var merged: [CartItemEntity] = []
+        var seenOutlets = Set<String>()
+        for cartRow in remote {
+            let outletId = cartRow.outletId ?? ""
+            seenOutlets.insert(outletId)
+            let sectionItems = (itemsByCart[cartRow.id] ?? []).map { item in
+                buildEntity(
+                    item: item,
+                    outletId: outletId,
+                    customsByItem: customsByItem,
+                    variantNames: variantNames,
+                    optionExtras: optionExtras
                 )
             }
-            entities.append(CartItemEntity(
-                id: item.id,
-                foodItemId: item.foodItemId,
-                foodName: item.foodName,
-                foodImageUrl: item.foodImageUrl,
-                outletId: outletId,
-                outletName: item.outletName,
-                price: item.price,
-                quantity: max(item.quantity, 1),
-                isVeg: item.isVeg,
-                specialInstructions: item.specialInstructions,
-                customizations: customs
-            ))
+            switch Self.resolveSync(
+                local: localByOutlet[outletId] ?? [],
+                remote: sectionItems,
+                remoteOutlet: outletId,
+                remoteUpdated: Self.serverDate(cartRow.updatedAt)
+            ) {
+            case .keepLocal:
+                merged.append(contentsOf: localByOutlet[outletId] ?? [])
+            case .adopt(let lines):
+                merged.append(contentsOf: lines)
+            }
+        }
+        for (outletId, lines) in localByOutlet where !seenOutlets.contains(outletId) {
+            merged.append(contentsOf: lines)
         }
 
-        // Merge local-only lines when outlets match; remote wins otherwise.
-        // (Pure decision below — unit-tested in CartSyncDecisionTests.)
-        let local = await store.loadAll()
-        switch Self.resolveSync(
-            local: local,
-            remote: entities,
-            remoteOutlet: outletId,
-            remoteUpdated: Self.serverDate(cartRow.updatedAt)
-        ) {
-        case .keepLocal:
-            return
-        case .adopt(let merged):
-            try await store.clear()
-            for e in merged { try await store.upsert(e) }
-            await store.notifyChanged()
+        try await store.clear()
+        for e in merged { try await store.upsert(e) }
+        await store.notifyChanged()
+    }
+
+    private func buildEntity(
+        item: RemoteCartItemJoin,
+        outletId: String,
+        customsByItem: [String: [RemoteCustomizationRow]],
+        variantNames: [String: String],
+        optionExtras: [String: Double]
+    ) -> CartItemEntity {
+        let customs = (customsByItem[item.id] ?? []).map { rc -> SelectedCustomization in
+            let label = variantNames["\(rc.variantId)/\(rc.optionId)"] ?? ""
+            let parts = label.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            return SelectedCustomization(
+                customizationId: rc.variantId,
+                customizationName: parts.first ?? "",
+                optionId: rc.optionId,
+                optionName: parts.count > 1 ? parts[1] : label,
+                extraPrice: optionExtras[rc.optionId] ?? rc.extraPrice
+            )
         }
+        return CartItemEntity(
+            id: item.id,
+            foodItemId: item.foodItemId,
+            foodName: item.foodName,
+            foodImageUrl: item.foodImageUrl,
+            outletId: outletId,
+            outletName: item.outletName,
+            price: item.price,
+            quantity: max(item.quantity, 1),
+            isVeg: item.isVeg,
+            specialInstructions: item.specialInstructions,
+            customizations: customs
+        )
     }
 
     // MARK: - Sync decision (pure, unit-tested)
@@ -576,8 +650,11 @@ final class SupabaseCartRepository: CartRepository, Sendable {
         return .adopt(merged)
     }
 
-    /// Push local cart → backend. Throws on failure (checkout calls this
-    /// authoritatively before `place_order`).
+    /// Push local cart → backend, one row per outlet (migration 016 relaxes
+    /// `carts.user_id` unique to `(user_id, outlet_id)`). Against the legacy
+    /// single-cart backend, pushing a second outlet raises the server
+    /// single-outlet trigger error and the whole push throws — local lines
+    /// stay intact. Throws on failure (checkout calls this authoritatively).
     func pushToBackend() async throws {
         guard let uid = userId else { return } // offline/anonymous: local only
         let entities = await store.loadAll()
@@ -596,48 +673,64 @@ final class SupabaseCartRepository: CartRepository, Sendable {
             return
         }
 
-        let outletId = entities.first!.outletId
-        let items = entities.map { $0.toCartItem() }
-        let t = CartMath.totals(for: items)
-
-        // Local wins on outlet change: drop all remote carts first.
-        if existing.first(where: { $0.outletId != nil && $0.outletId != outletId }) != nil {
-            try await client.from("carts").delete().eq("user_id", value: uid).execute()
-        }
-
-        let cartId: String
-        if let same = (try? await client.from("carts").select().eq("user_id", value: uid).limit(1).execute().value as [RemoteCartRow])?.first {
-            cartId = same.id
-            try await client.from("carts")
-                .update(RemoteCartTotalsUpdate(outletId: outletId, subtotal: t.subtotal, tax: t.tax, total: t.total))
-                .eq("id", value: cartId)
-                .execute()
-        } else {
-            cartId = UUID().uuidString
-            try await client.from("carts")
-                .insert(RemoteCartInsert(id: cartId, userId: uid, outletId: outletId, subtotal: t.subtotal, tax: t.tax, total: t.total))
-                .execute()
-        }
-
-        // Replace lines wholesale (customizations cascade on delete).
-        try await client.from("cart_items").delete().eq("cart_id", value: cartId).execute()
-
-        let itemInserts = entities.map { e in
-            RemoteCartItemInsert(
-                id: e.id, cartId: cartId, foodItemId: e.foodItemId,
-                quantity: e.quantity, price: e.price, isVeg: e.isVeg,
-                specialInstructions: e.specialInstructions
-            )
-        }
-        try await client.from("cart_items").insert(itemInserts).execute()
-
-        let customInserts = entities.flatMap { e in
-            e.customizations.map { c in
-                RemoteCustomizationInsert(cartItemId: e.id, variantId: c.customizationId, optionId: c.optionId, extraPrice: c.extraPrice)
+        // Group local lines per outlet; drop remote rows for outlets no
+        // longer present locally.
+        var byOutlet: [String: [CartItemEntity]] = [:]
+        var outletOrder: [String] = []
+        for e in entities {
+            if byOutlet[e.outletId] == nil {
+                byOutlet[e.outletId] = []
+                outletOrder.append(e.outletId)
             }
+            byOutlet[e.outletId]?.append(e)
         }
-        if !customInserts.isEmpty {
-            try await client.from("cart_item_customizations").insert(customInserts).execute()
+        let staleRemote = existing.filter { row in
+            guard let outlet = row.outletId else { return false }
+            return byOutlet[outlet] == nil
+        }
+        for row in staleRemote {
+            try await client.from("carts").delete().eq("id", value: row.id).execute()
+        }
+
+        for outletId in outletOrder {
+            guard let lines = byOutlet[outletId] else { continue }
+            let items = lines.map { $0.toCartItem() }
+            let t = CartMath.totals(for: items)
+
+            let cartId: String
+            if let same = existing.first(where: { $0.outletId == outletId }) {
+                cartId = same.id
+                try await client.from("carts")
+                    .update(RemoteCartTotalsUpdate(outletId: outletId, subtotal: t.subtotal, tax: t.tax, total: t.total))
+                    .eq("id", value: cartId)
+                    .execute()
+            } else {
+                cartId = UUID().uuidString
+                try await client.from("carts")
+                    .insert(RemoteCartInsert(id: cartId, userId: uid, outletId: outletId, subtotal: t.subtotal, tax: t.tax, total: t.total))
+                    .execute()
+            }
+
+            // Replace lines wholesale (customizations cascade on delete).
+            try await client.from("cart_items").delete().eq("cart_id", value: cartId).execute()
+
+            let itemInserts = lines.map { e in
+                RemoteCartItemInsert(
+                    id: e.id, cartId: cartId, foodItemId: e.foodItemId,
+                    quantity: e.quantity, price: e.price, isVeg: e.isVeg,
+                    specialInstructions: e.specialInstructions
+                )
+            }
+            try await client.from("cart_items").insert(itemInserts).execute()
+
+            let customInserts = lines.flatMap { e in
+                e.customizations.map { c in
+                    RemoteCustomizationInsert(cartItemId: e.id, variantId: c.customizationId, optionId: c.optionId, extraPrice: c.extraPrice)
+                }
+            }
+            if !customInserts.isEmpty {
+                try await client.from("cart_item_customizations").insert(customInserts).execute()
+            }
         }
     }
 }

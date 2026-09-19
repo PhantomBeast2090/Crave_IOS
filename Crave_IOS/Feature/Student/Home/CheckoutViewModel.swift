@@ -2,11 +2,13 @@ import Foundation
 import Observation
 
 /// Checkout state machine (mirrors Android CheckoutViewModel + CheckoutScreen
-/// flow), including the ONLINE Razorpay lifecycle:
+/// flow), extended for multi-outlet carts: one outlet section after another,
+/// each placed + paid + verified independently, with compensating cancels on
+/// placement failure. Verified (paid/counter) orders are never cancelled.
 ///
-/// place_order → create-razorpay-order → sheet → verify-razorpay-payment →
-/// success. The cart is cleared only after PAY_AT_COUNTER placement or
-/// verified ONLINE payment — never before.
+/// place_order (per section) → create-razorpay-order → sheet →
+/// verify-razorpay-payment → success. Cart lines clear per verified section —
+/// never before verification.
 @MainActor
 @Observable
 final class CheckoutViewModel {
@@ -49,9 +51,24 @@ final class CheckoutViewModel {
         }
     }
 
-    private(set) var slotsState: SlotsState = .idle
+    struct CheckoutSection: Sendable, Identifiable {
+        let outletId: String
+        let outletName: String
+        var items: [CartItem]
+        var subtotal: Double
+        var tax: Double
+        var total: Double
+        var slotsState: SlotsState = .idle
+        var slots: [PickupSlot] = []
+        var selectedSlot: PickupSlot?
+
+        var id: String { outletId }
+    }
+
+    private(set) var sections: [CheckoutSection]
     private(set) var flowState: FlowState = .idle
-    var selectedSlot: PickupSlot?
+    /// Orders verified (or counter-placed) so far, across sections.
+    private(set) var completedOrders: [Order] = []
     /// Android defaults to ONLINE; PAY_AT_COUNTER is also supported by the backend.
     var paymentMethod: PaymentMethod = .online
 
@@ -73,38 +90,71 @@ final class CheckoutViewModel {
         self.repository = repository
         self.userEmail = userEmail
         self.sheet = sheet ?? RazorpayService.shared
+        self.sections = cart.sections.map { section in
+            CheckoutSection(
+                outletId: section.outletId,
+                outletName: section.outletName,
+                items: section.items,
+                subtotal: section.subtotal,
+                tax: section.tax,
+                total: section.total
+            )
+        }
     }
 
     var canPlaceOrder: Bool {
-        guard selectedSlot != nil, !cart.isEmpty else { return false }
+        guard !cart.isEmpty, sections.allSatisfy({ $0.selectedSlot != nil }) else { return false }
         switch flowState {
         case .placing, .verifying, .awaitingPayment: return false
         default: return true
         }
     }
 
-    // MARK: - Slots (today only, like Android)
+    // MARK: - Slots (today only, like Android; fetched per outlet)
 
     func loadSlots() async {
-        guard case .idle = slotsState else { return }
-        slotsState = .loading
+        await withTaskGroup(of: Void.self) { group in
+            for index in sections.indices {
+                group.addTask { [weak self] in
+                    await self?.loadSlots(for: index)
+                }
+            }
+        }
+    }
+
+    private func loadSlots(for index: Int) async {
+        guard sections.indices.contains(index) else { return }
+        guard case .idle = sections[index].slotsState else { return }
+        sections[index].slotsState = .loading
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         let today = formatter.string(from: Date())
         do {
-            let slots = try await repository.orders.getPickupSlots(outletId: cart.outletId, date: today)
-            slotsState = slots.isEmpty ? .empty : .loaded(slots)
+            let slots = try await repository.orders.getPickupSlots(outletId: sections[index].outletId, date: today)
+            sections[index].slots = slots
+            sections[index].slotsState = slots.isEmpty ? .empty : .loaded(slots)
         } catch is CancellationError {
-            slotsState = .idle
+            sections[index].slotsState = .idle
         } catch {
-            slotsState = .error(message: error.localizedDescription)
+            sections[index].slotsState = .error(message: error.localizedDescription)
         }
     }
 
-    func retrySlots() async {
-        slotsState = .idle
+    func retrySlots(outletId: String? = nil) async {
+        for index in sections.indices where outletId == nil || sections[index].outletId == outletId {
+            sections[index].slotsState = .idle
+        }
         await loadSlots()
+    }
+
+    /// Choose a section's slot (also persisted onto its lines for cart resume).
+    func selectSlot(outletId: String, slot: PickupSlot) async {
+        guard let index = sections.firstIndex(where: { $0.outletId == outletId }) else { return }
+        sections[index].selectedSlot = slot
+        for item in sections[index].items {
+            try? await repository.cart.setSlot(cartItemId: item.id, slotId: slot.id)
+        }
     }
 
     // MARK: - Placement
@@ -116,7 +166,7 @@ final class CheckoutViewModel {
     private var sheetTimeoutTask: Task<Void, Never>?
 
     func placeOrder() async {
-        guard let slot = selectedSlot, !cart.isEmpty else { return }
+        guard !cart.isEmpty, sections.allSatisfy({ $0.selectedSlot != nil }) else { return }
         // Retry is only allowed from terminal failure states.
         switch flowState {
         case .idle, .error, .paymentCancelled: break
@@ -129,6 +179,7 @@ final class CheckoutViewModel {
             return
         }
         flowState = .placing
+        pendingPlacedUnpaid = []
 
         do {
             // Cancel a stale order from a previous failed attempt first.
@@ -143,52 +194,103 @@ final class CheckoutViewModel {
             // Authoritative backend sync before placing (never blind-submit).
             try await repository.cart.pushToBackend()
 
-            let order = try await repository.orders.placeOrder(
-                pickupSlotId: slot.id,
-                paymentMethod: paymentMethod
-            )
-            pendingOrderId = order.id
-            pendingVerification = nil // fresh order, previous verify context is stale
+            // Sections already verified in a previous attempt are skipped.
+            let done = Set(completedOrders.map(\.outletId))
+            let pending = sections.filter { !done.contains($0.outletId) }
 
             if paymentMethod == .payAtCounter {
+                var placed: [Order] = []
+                do {
+                    for section in pending {
+                        guard let slot = section.selectedSlot else { continue }
+                        let cartId = try await repository.orders.backendCartId(forOutlet: section.outletId)
+                        let order = try await repository.orders.placeOrder(
+                            cartId: cartId,
+                            pickupSlotId: slot.id,
+                            paymentMethod: paymentMethod
+                        )
+                        placed.append(order)
+                    }
+                } catch {
+                    // Compensate: cancel what this run placed (all unpaid).
+                    for order in placed {
+                        try? await repository.orders.cancelOrder(orderId: order.id, reason: "Multi-outlet placement failed")
+                    }
+                    throw error
+                }
                 try? await repository.cart.clearCart()
                 pendingOrderId = nil
-                flowState = .success(order: order)
+                completedOrders.append(contentsOf: placed)
+                if let last = completedOrders.last {
+                    flowState = .success(order: last)
+                }
                 return
             }
 
-            // ONLINE: create Razorpay order, open sheet, verify server-side.
-            flowState = .awaitingPayment(order: order)
-            let details = try await repository.payments.createRazorpayOrder(orderId: order.id)
+            // ONLINE: per section — create Razorpay order, open sheet, verify
+            // server-side. Verified sections stay verified; failures stop the
+            // run without touching completed (paid) or pending (placed) orders.
+            for section in pending {
+                guard let slot = section.selectedSlot else { continue }
+                let cartId = try await repository.orders.backendCartId(forOutlet: section.outletId)
+                let order: Order
+                do {
+                    order = try await repository.orders.placeOrder(
+                        cartId: cartId,
+                        pickupSlotId: slot.id,
+                        paymentMethod: paymentMethod
+                    )
+                    pendingPlacedUnpaid.append(order)
+                } catch {
+                    // Compensate only orders placed (not paid) in THIS run.
+                    for placed in pendingPlacedUnpaid {
+                        try? await repository.orders.cancelOrder(orderId: placed.id, reason: "Multi-outlet placement failed")
+                    }
+                    pendingPlacedUnpaid = []
+                    throw error
+                }
+                pendingOrderId = order.id
+                pendingVerification = nil // fresh order, previous verify context is stale
 
-            armSheetTimeout(for: order.id)
-            let sheetResult = await sheet.pay(
-                keyId: details.keyId,
-                amountPaise: details.amount,
-                razorpayOrderId: details.razorpayOrderId,
-                outletName: cart.outletName,
-                email: userEmail
-            )
-            disarmSheetTimeout()
+                flowState = .awaitingPayment(order: order)
+                let details = try await repository.payments.createRazorpayOrder(orderId: order.id)
 
-            switch sheetResult {
-            case .success(let paymentId, let rzOrderId, let signature):
-                let request = PaymentVerificationRequest(
-                    orderId: order.id,
-                    razorpayOrderId: rzOrderId,
-                    razorpayPaymentId: paymentId,
-                    razorpaySignature: signature
+                armSheetTimeout(for: order.id)
+                let sheetResult = await sheet.pay(
+                    keyId: details.keyId,
+                    amountPaise: details.amount,
+                    razorpayOrderId: details.razorpayOrderId,
+                    outletName: section.outletName,
+                    email: userEmail
                 )
-                pendingVerification = (order, request)
-                flowState = .verifying(order: order)
-                try await verifyPayment(order: order, request: request)
+                disarmSheetTimeout()
 
-            case .cancelled:
-                // Order remains, cart intact — user can retry or pay later.
-                flowState = .paymentCancelled(orderId: order.id)
+                switch sheetResult {
+                case .success(let paymentId, let rzOrderId, let signature):
+                    let request = PaymentVerificationRequest(
+                        orderId: order.id,
+                        razorpayOrderId: rzOrderId,
+                        razorpayPaymentId: paymentId,
+                        razorpaySignature: signature
+                    )
+                    pendingVerification = (order, request)
+                    flowState = .verifying(order: order)
+                    try await verifyPayment(order: order, request: request)
+                    completedOrders.append(order)
+                    pendingPlacedUnpaid.removeAll(where: { $0.id == order.id })
 
-            case .failed(let message):
-                flowState = .error(message: message)
+                case .cancelled:
+                    // Order remains, cart intact — user can retry or pay later.
+                    flowState = .paymentCancelled(orderId: order.id)
+                    return
+
+                case .failed(let message):
+                    flowState = .error(message: message)
+                    return
+                }
+            }
+            if let last = completedOrders.last {
+                flowState = .success(order: last)
             }
         } catch is CancellationError {
             flowState = .idle
@@ -196,6 +298,9 @@ final class CheckoutViewModel {
             flowState = .error(message: error.localizedDescription)
         }
     }
+
+    /// Orders placed (not yet verified) by the current run, for compensation.
+    private var pendingPlacedUnpaid: [Order] = []
 
     /// User escape hatch while waiting on the sheet: abandon the wait and
     /// keep the order + cart intact for a later retry.
@@ -230,7 +335,7 @@ final class CheckoutViewModel {
     /// an idempotent re-verify retry.
     private func verifyPayment(order: Order, request: PaymentVerificationRequest) async throws {
         try await repository.payments.verifyRazorpayPayment(request)
-        try? await repository.cart.clearCart()
+        try? await repository.cart.clearSection(outletId: order.outletId)
         pendingOrderId = nil
         pendingVerification = nil
         flowState = .success(order: order)
@@ -244,6 +349,12 @@ final class CheckoutViewModel {
         flowState = .verifying(order: pending.order)
         do {
             try await verifyPayment(order: pending.order, request: pending.request)
+            if !completedOrders.contains(where: { $0.id == pending.order.id }) {
+                completedOrders.append(pending.order)
+            }
+            if let last = completedOrders.last {
+                flowState = .success(order: last)
+            }
         } catch is CancellationError {
             flowState = .idle
         } catch {

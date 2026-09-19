@@ -186,8 +186,29 @@ final class SupabaseOrderRepository: OrderRepository, Sendable {
         return id
     }
 
-    func placeOrder(pickupSlotId: String, paymentMethod: PaymentMethod) async throws -> Order {
-        let cartId = try await backendCartId()
+    func backendCartId(forOutlet outletId: String) async throws -> String {
+        guard let uid = userId else { throw CartError.notSignedIn }
+        struct CartIdRow: Decodable, Sendable {
+            let id: String
+            let outletId: String?
+            enum CodingKeys: String, CodingKey { case id; case outletId = "outlet_id" }
+        }
+        let rows: [CartIdRow] = (try? await client.from("carts")
+            .select("id,outlet_id")
+            .eq("user_id", value: uid)
+            .order("updated_at", ascending: false)
+            .execute()
+            .value) ?? []
+        // Prefer the outlet's row; fall back to the newest row (legacy
+        // single-cart backends) so single-outlet flow is unchanged.
+        if let match = rows.first(where: { $0.outletId == outletId }) {
+            return match.id
+        }
+        guard let id = rows.first?.id else { throw CartError.emptyCart }
+        return id
+    }
+
+    func placeOrder(cartId: String, pickupSlotId: String, paymentMethod: PaymentMethod) async throws -> Order {
         let orderId: String
         do {
             orderId = try await client

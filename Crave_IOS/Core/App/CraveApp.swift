@@ -9,6 +9,10 @@ struct CraveApp: App {
     @State private var appState = AppState()
     @State private var themeManager = ThemeManager.shared
 
+    init() {
+        CraveFonts.register()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SplashView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var logoScale: CGFloat = 0.6
     @State private var logoOpacity: Double = 0
     
@@ -37,7 +38,7 @@ struct SplashView: View {
             }
         }
         .onAppear {
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.6)) {
+            withAnimation(reduceMotion ? nil : .spring(response: 0.8, dampingFraction: 0.6)) {
                 logoScale = 1.0
                 logoOpacity = 1.0
             }

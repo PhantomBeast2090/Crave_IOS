@@ -59,8 +59,9 @@ struct CheckoutView: View {
     @ViewBuilder
     private func checkoutContent(viewModel: CheckoutViewModel) -> some View {
         switch viewModel.flowState {
-        case .success(let order):
-            confirmationContent(order: order)
+        case .success:
+            confirmationContent(orders: viewModel.completedOrders)
+                .sensoryFeedback(.success, trigger: viewModel.completedOrders.count)
         default:
             checkoutForm(viewModel: viewModel)
         }
@@ -72,8 +73,10 @@ struct CheckoutView: View {
     private func checkoutForm(viewModel: CheckoutViewModel) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: GagShapes.spacingL) {
-                orderSummarySection
-                pickupSlotSection(viewModel: viewModel)
+                ForEach(viewModel.sections) { section in
+                    sectionCard(section, viewModel: viewModel)
+                }
+                orderTotalsSection
                 paymentMethodSection(viewModel: viewModel)
                 flowStatusSection(viewModel: viewModel)
 
@@ -83,8 +86,9 @@ struct CheckoutView: View {
                     if case .awaitingPayment = viewModel.flowState { return true }
                     return false
                 }()
+                let missingSlots = viewModel.sections.contains { $0.selectedSlot == nil }
                 GagButton(
-                    title: viewModel.selectedSlot == nil ? "Select a Pickup Slot First" : "Place Order",
+                    title: missingSlots ? "Select a Pickup Slot for Each Outlet" : "Place Order",
                     isLoading: placing,
                     isEnabled: viewModel.canPlaceOrder,
                     accessibilityIdentifier: "placeOrderButton",
@@ -95,17 +99,13 @@ struct CheckoutView: View {
         }
     }
 
-    private var orderSummarySection: some View {
+    private func sectionCard(_ section: CheckoutViewModel.CheckoutSection, viewModel: CheckoutViewModel) -> some View {
         VStack(alignment: .leading, spacing: GagShapes.spacingS) {
-            Text("Order Summary")
+            Text(section.outletName)
                 .font(GagTypography.titleSmall)
                 .foregroundStyle(GagColors.onSurface)
 
-            Text("Ordering from \(cart.outletName)")
-                .font(GagTypography.labelMedium)
-                .foregroundStyle(GagColors.brandOrange)
-
-            ForEach(cart.items) { item in
+            ForEach(section.items) { item in
                 HStack {
                     Text("\(item.foodName) × \(item.quantity)")
                         .font(GagTypography.bodyMedium)
@@ -123,70 +123,83 @@ struct CheckoutView: View {
             }
 
             Divider()
-            SummaryRow(label: "Subtotal", value: cart.subtotal)
-            SummaryRow(label: "GST (5%)", value: cart.tax)
-            Divider()
-            SummaryRow(label: "Total", value: cart.total, isTotal: true)
+            SummaryRow(label: "Subtotal", value: section.subtotal)
+
+            Text("Pickup Slot · \(section.outletName)")
+                .font(GagTypography.labelMedium)
+                .foregroundStyle(GagColors.onSurfaceVariant)
+                .padding(.top, GagShapes.spacingS)
+
+            sectionSlots(section, viewModel: viewModel)
         }
         .gagCard()
     }
 
     @ViewBuilder
-    private func pickupSlotSection(viewModel: CheckoutViewModel) -> some View {
-        VStack(alignment: .leading, spacing: GagShapes.spacingM) {
-            Text("Pickup Slot")
-                .font(GagTypography.titleSmall)
-                .foregroundStyle(GagColors.onSurface)
+    private func sectionSlots(_ section: CheckoutViewModel.CheckoutSection, viewModel: CheckoutViewModel) -> some View {
+        switch section.slotsState {
+        case .idle, .loading:
+            HStack {
+                ProgressView()
+                    .tint(GagColors.brandOrange)
+                Text("Loading slots…")
+                    .font(GagTypography.bodyMedium)
+                    .foregroundStyle(GagColors.onSurfaceVariant)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, GagShapes.spacingM)
 
-            switch viewModel.slotsState {
-            case .idle, .loading:
-                HStack {
-                    ProgressView()
-                        .tint(GagColors.brandOrange)
-                    Text("Loading slots…")
-                        .font(GagTypography.bodyMedium)
-                        .foregroundStyle(GagColors.onSurfaceVariant)
+        case .empty:
+            VStack(spacing: GagShapes.spacingS) {
+                Text("No pickup slots available for this outlet today.")
+                    .font(GagTypography.bodyMedium)
+                    .foregroundStyle(GagColors.onSurfaceVariant)
+                Button("Check Again") {
+                    Task { await viewModel.retrySlots(outletId: section.outletId) }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, GagShapes.spacingL)
+                .font(GagTypography.labelLarge)
+                .foregroundStyle(GagColors.brandOrange)
+            }
 
-            case .empty:
-                VStack(spacing: GagShapes.spacingS) {
-                    Text("No pickup slots available for this outlet today.")
-                        .font(GagTypography.bodyMedium)
-                        .foregroundStyle(GagColors.onSurfaceVariant)
-                    Button("Check Again") {
-                        Task { await viewModel.retrySlots() }
-                    }
-                    .font(GagTypography.labelLarge)
-                    .foregroundStyle(GagColors.brandOrange)
+        case .error(let message):
+            VStack(spacing: GagShapes.spacingS) {
+                Text(message)
+                    .font(GagTypography.bodyMedium)
+                    .foregroundStyle(GagColors.error)
+                Button("Retry") {
+                    Task { await viewModel.retrySlots(outletId: section.outletId) }
                 }
+                .font(GagTypography.labelLarge)
+                .foregroundStyle(GagColors.brandOrange)
+            }
 
-            case .error(let message):
-                VStack(spacing: GagShapes.spacingS) {
-                    Text(message)
-                        .font(GagTypography.bodyMedium)
-                        .foregroundStyle(GagColors.error)
-                    Button("Retry") {
-                        Task { await viewModel.retrySlots() }
-                    }
-                    .font(GagTypography.labelLarge)
-                    .foregroundStyle(GagColors.brandOrange)
-                }
-
-            case .loaded(let slots):
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))], spacing: GagShapes.spacingS) {
-                    ForEach(slots) { slot in
-                        PickupSlotRow(
-                            slot: slot,
-                            isSelected: viewModel.selectedSlot?.id == slot.id,
-                            action: {
-                                if slot.isSelectable { viewModel.selectedSlot = slot }
+        case .loaded(let slots):
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))], spacing: GagShapes.spacingS) {
+                ForEach(slots) { slot in
+                    PickupSlotRow(
+                        slot: slot,
+                        isSelected: section.selectedSlot?.id == slot.id,
+                        action: {
+                            if slot.isSelectable {
+                                Task { await viewModel.selectSlot(outletId: section.outletId, slot: slot) }
                             }
-                        )
-                    }
+                        }
+                    )
                 }
             }
+        }
+    }
+
+    private var orderTotalsSection: some View {
+        VStack(alignment: .leading, spacing: GagShapes.spacingS) {
+            Text("Order Total")
+                .font(GagTypography.titleSmall)
+                .foregroundStyle(GagColors.onSurface)
+            Divider()
+            SummaryRow(label: "Subtotal", value: cart.subtotal)
+            SummaryRow(label: "GST (5%)", value: cart.tax)
+            Divider()
+            SummaryRow(label: "Total", value: cart.total, isTotal: true)
         }
         .gagCard()
     }
@@ -282,46 +295,63 @@ struct CheckoutView: View {
 
     // MARK: - Confirmation (mirrors Android OrderConfirmation)
 
-    private func confirmationContent(order: Order) -> some View {
+    private func confirmationContent(orders: [Order]) -> some View {
         ScrollView {
             VStack(spacing: GagShapes.spacingL) {
                 VStack(spacing: GagShapes.spacingM) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 64))
                         .foregroundStyle(GagColors.success)
-                    Text("Order Placed!")
+                    Text(orders.count > 1 ? "Orders Placed!" : "Order Placed!")
                         .font(GagTypography.titleLarge)
                         .foregroundStyle(GagColors.onSurface)
-                    Text("Order \(order.orderNumber)")
+                    Text("Campus Checkout · \(orders.count) order" + (orders.count == 1 ? "" : "s"))
                         .font(GagTypography.titleMedium)
                         .foregroundStyle(GagColors.brandOrange)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.top, GagShapes.spacingXL)
 
-                VStack(spacing: GagShapes.spacingS) {
-                    if let slot = order.pickupSlot {
-                        confirmationRow("Pickup", slot.displayTime)
+                ForEach(orders) { order in
+                    VStack(alignment: .leading, spacing: GagShapes.spacingS) {
+                        Text(order.outletName)
+                            .font(GagTypography.titleSmall)
+                            .foregroundStyle(GagColors.onSurface)
+                        Text("Order \(order.orderNumber)")
+                            .font(GagTypography.labelMedium)
+                            .foregroundStyle(GagColors.brandOrange)
+                        if let slot = order.pickupSlot {
+                            confirmationRow("Pickup", slot.displayTime)
+                        }
+                        confirmationRow("Total", Formatters.price(order.total))
+                        confirmationRow("Payment", order.paymentMethod.displayName)
+                        confirmationRow("Status", order.status.displayName)
+
+                        HStack(spacing: GagShapes.spacingM) {
+                            Button("Track") {
+                                successOrder = order
+                                showTracking = true
+                            }
+                            .font(GagTypography.labelLarge)
+                            .foregroundStyle(GagColors.brandOrange)
+                            Spacer()
+                            Button("Pickup QR") {
+                                successOrder = order
+                                showQR = true
+                            }
+                            .font(GagTypography.labelLarge)
+                            .foregroundStyle(GagColors.brandOrange)
+                        }
+                        .padding(.top, GagShapes.spacingS)
                     }
-                    confirmationRow("Total", Formatters.price(order.total))
-                    confirmationRow("Payment", order.paymentMethod.displayName)
-                    confirmationRow("Status", order.status.displayName)
+                    .gagCard()
                 }
-                .gagCard()
 
                 Text("You'll receive a notification when it's ready for pickup.")
                     .font(GagTypography.bodyMedium)
                     .foregroundStyle(GagColors.onSurfaceVariant)
                     .multilineTextAlignment(.center)
 
-                GagButton(title: "Track Order", action: {
-                    successOrder = order
-                    showTracking = true
-                })
-                GagButton(title: "Show Pickup QR", style: .secondary, action: {
-                    successOrder = order
-                    showQR = true
-                })
                 Button("Done") { dismiss() }
                     .font(GagTypography.labelLarge)
                     .foregroundStyle(GagColors.onSurfaceVariant)

@@ -29,6 +29,7 @@ struct QuantitySelector: View {
                 .font(GagTypography.titleMedium)
                 .foregroundStyle(GagColors.onSurface)
                 .frame(minWidth: 28)
+                .contentTransition(.numericText())
                 .accessibilityIdentifier("quantityValue")
 
             Button {
@@ -45,5 +46,6 @@ struct QuantitySelector: View {
             .accessibilityIdentifier("increaseQuantity")
             .disabled(quantity >= max)
         }
+        .sensoryFeedback(.selection, trigger: quantity)
     }
 }

@@ -22,16 +22,6 @@ struct OutletDetailView: View {
         .navigationDestination(item: detailBinding) { item in
             FoodDetailView(foodId: item.id, outletId: item.outletId)
         }
-        .alert("Different Outlet", isPresented: conflictBinding) {
-            Button("Clear & Add", role: .destructive) {
-                quickAdd?.confirmConflictAdd()
-            }
-            Button("Keep Cart", role: .cancel) {
-                quickAdd?.dismissConflict()
-            }
-        } message: {
-            Text("Your cart contains items from a different outlet. Clear cart and add from this outlet?")
-        }
         .overlay(alignment: .bottom) {
             if let message = quickAdd?.toastMessage {
                 GagToast(message: message)
@@ -44,13 +34,6 @@ struct OutletDetailView: View {
         Binding(
             get: { quickAdd?.detailItem },
             set: { quickAdd?.detailItem = $0 }
-        )
-    }
-
-    private var conflictBinding: Binding<Bool> {
-        Binding(
-            get: { quickAdd?.conflictItem != nil },
-            set: { if !$0 { quickAdd?.dismissConflict() } }
         )
     }
 

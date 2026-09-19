@@ -17,6 +17,7 @@
 		4F64E69000000000000000D8 /* FoodDetailViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000D7 /* FoodDetailViewModelTests.swift */; };
 		4F64E69000000000000000D9 /* CartSyncDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000DA /* CartSyncDecisionTests.swift */; };
 		4F64E69000000000000000DB /* CategoryResultsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000DC /* CategoryResultsTests.swift */; };
+		4F64E69000000000000000DD /* MultiOutletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000DE /* MultiOutletTests.swift */; };
 		4F64E69000000000000000E1 /* AcceptanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F64E69000000000000000E3 /* AcceptanceTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -48,6 +49,7 @@
 		4F64E69000000000000000D7 /* FoodDetailViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodDetailViewModelTests.swift; sourceTree = "<group>"; };
 		4F64E69000000000000000DA /* CartSyncDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CartSyncDecisionTests.swift; sourceTree = "<group>"; };
 		4F64E69000000000000000DC /* CategoryResultsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryResultsTests.swift; sourceTree = "<group>"; };
+		4F64E69000000000000000DE /* MultiOutletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiOutletTests.swift; sourceTree = "<group>"; };
 		4F64E69000000000000000E3 /* AcceptanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcceptanceTests.swift; sourceTree = "<group>"; };
 		4F64E69000000000000000E5 /* Crave_IOUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Crave_IOUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -118,6 +120,7 @@
 				4F64E69000000000000000D7 /* FoodDetailViewModelTests.swift */,
 				4F64E69000000000000000DA /* CartSyncDecisionTests.swift */,
 				4F64E69000000000000000DC /* CategoryResultsTests.swift */,
+				4F64E69000000000000000DE /* MultiOutletTests.swift */,
 			);
 			path = Crave_IOSTests;
 			sourceTree = "<group>";
@@ -285,6 +288,7 @@
 				4F64E69000000000000000D8 /* FoodDetailViewModelTests.swift in Sources */,
 				4F64E69000000000000000D9 /* CartSyncDecisionTests.swift in Sources */,
 				4F64E69000000000000000DB /* CategoryResultsTests.swift in Sources */,
+				4F64E69000000000000000DD /* MultiOutletTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

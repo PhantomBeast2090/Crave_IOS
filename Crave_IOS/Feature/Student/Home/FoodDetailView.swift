@@ -89,27 +89,14 @@ struct FoodDetailView: View {
         .overlay(alignment: .bottom) {
             if viewModel.showAddedToCart {
                 GagToast(message: "Added to cart", accessibilityIdentifier: "addedToCartToast")
-                    .padding(.bottom, 100)
             }
         }
+        .sensoryFeedback(.success, trigger: viewModel.addFeedbackToken)
         .navigationDestination(isPresented: Binding(
             get: { viewModel.navigateToCart },
             set: { viewModel.navigateToCart = $0 }
         )) {
             CartView()
-        }
-        .alert("Different Outlet", isPresented: Binding(
-            get: { viewModel.pendingConflictAdd != nil },
-            set: { if !$0 { viewModel.dismissConflict() } }
-        )) {
-            Button("Clear & Add", role: .destructive) {
-                Task { await viewModel.confirmConflictAdd() }
-            }
-            Button("Keep Cart", role: .cancel) {
-                viewModel.dismissConflict()
-            }
-        } message: {
-            Text("Your cart contains items from a different outlet. Clear cart and add from this outlet?")
         }
     }
 
@@ -145,6 +132,7 @@ struct FoodDetailView: View {
                     .clipShape(Circle())
                     .padding(GagShapes.spacingM)
             }
+            .sensoryFeedback(.selection, trigger: viewModel.favoriteToken)
         }
     }
 

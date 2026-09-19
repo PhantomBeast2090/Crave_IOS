@@ -4,6 +4,7 @@ struct CartView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: CartViewModel?
     @State private var showCheckout = false
+    @State private var slotSheetItem: CartItem?
 
     var body: some View {
         Group {
@@ -26,11 +27,17 @@ struct CartView: View {
                 GagLoadingView(message: "Loading cart…")
             }
         }
+        .sheet(item: $slotSheetItem) { item in
+            slotPickerSheet(item, viewModel: viewModel)
+        }
     }
 
     private func setupViewModel() async {
         if viewModel == nil {
-            viewModel = CartViewModel(repository: appState.repository.cart)
+            viewModel = CartViewModel(
+                cart: appState.repository.cart,
+                orders: appState.repository.orders
+            )
         }
         // .task re-runs on reappear: resubscribe (start is idempotent).
         viewModel?.start()
@@ -46,21 +53,20 @@ struct CartView: View {
             )
         } else if let cart = viewModel.cart {
             List {
-                Section {
-                    HStack {
-                        Text("Ordering from:")
-                            .font(GagTypography.labelMedium)
-                            .foregroundStyle(GagColors.onSurfaceVariant)
-                        Text(cart.outletName)
-                            .font(GagTypography.titleSmall)
-                            .foregroundStyle(GagColors.brandOrange)
+                ForEach(cart.sections) { section in
+                    Section {
+                        outletHeader(section)
+                        ForEach(section.items) { item in
+                            CartItemRow(
+                                item: item,
+                                viewModel: viewModel,
+                                matchMode: viewModel.matchMode,
+                                selected: viewModel.selectedItemIds.contains(item.id),
+                                onToggleSelect: { viewModel.toggleSelect(item) },
+                                onPickSlot: { slotSheetItem = item }
+                            )
+                        }
                     }
-                }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-
-                ForEach(cart.items) { item in
-                    CartItemRow(item: item, viewModel: viewModel)
                 }
 
                 Section {
@@ -83,6 +89,7 @@ struct CartView: View {
             .background(AppTheme.screenBackground)
             .refreshable {
                 await viewModel.sync()
+                await viewModel.loadSlots()
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -94,33 +101,149 @@ struct CartView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                VStack(spacing: GagShapes.spacingS) {
-                    if let message = viewModel.errorMessage {
-                        Text(message)
-                            .font(GagTypography.labelMedium)
-                            .foregroundStyle(GagColors.error)
-                    }
-                    GagButton(
-                        title: "Proceed to Checkout (\(Formatters.price(viewModel.total)))",
-                        accessibilityIdentifier: "proceedToCheckoutButton",
-                        action: { showCheckout = true }
-                    )
-                }
-                .padding(GagShapes.spacingL)
-                .background(GagColors.surface)
+                bottomBar(viewModel: viewModel, cart: cart)
             }
-            .alert("Different Outlet", isPresented: Binding(
-                get: { viewModel.pendingConflict != nil },
-                set: { if !$0 { viewModel.dismissConflict() } }
-            )) {
-                Button("Clear & Add", role: .destructive) {
-                    Task { await viewModel.confirmConflictAdd() }
+        }
+    }
+
+    private func outletHeader(_ section: OutletCartSection) -> some View {
+        HStack {
+            Text(section.outletName.isEmpty ? "Outlet" : section.outletName)
+                .font(GagTypography.titleSmall)
+                .foregroundStyle(GagColors.brandOrange)
+            Spacer()
+            Text("\(section.totalItems) item" + (section.totalItems == 1 ? "" : "s"))
+                .font(GagTypography.labelSmall)
+                .foregroundStyle(GagColors.onSurfaceVariant)
+        }
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+
+    @ViewBuilder
+    private func bottomBar(viewModel: CartViewModel, cart: Cart) -> some View {
+        VStack(spacing: GagShapes.spacingS) {
+            if let message = viewModel.errorMessage {
+                Text(message)
+                    .font(GagTypography.labelMedium)
+                    .foregroundStyle(GagColors.error)
+            }
+            if viewModel.matchMode {
+                matchBar(viewModel: viewModel)
+            } else {
+                if cart.sections.count > 1 || (cart.items.count) > 1 {
+                    Button("Match Slots") {
+                        viewModel.enterMatchMode()
+                    }
+                    .font(GagTypography.labelLarge)
+                    .foregroundStyle(GagColors.brandOrange)
                 }
-                Button("Keep Cart", role: .cancel) {
-                    viewModel.dismissConflict()
+                GagButton(
+                    title: "Proceed to Checkout (\(Formatters.price(viewModel.total)))",
+                    accessibilityIdentifier: "proceedToCheckoutButton",
+                    action: { showCheckout = true }
+                )
+            }
+        }
+        .padding(GagShapes.spacingL)
+        .background(GagColors.surface)
+    }
+
+    @ViewBuilder
+    private func matchBar(viewModel: CartViewModel) -> some View {
+        VStack(spacing: GagShapes.spacingS) {
+            if let matchError = viewModel.matchError {
+                Text(matchError)
+                    .font(GagTypography.labelMedium)
+                    .foregroundStyle(GagColors.error)
+                    .multilineTextAlignment(.center)
+            }
+            if !viewModel.matchWindows.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: GagShapes.spacingS) {
+                        ForEach(viewModel.matchWindows, id: \.displayTime) { window in
+                            Button(window.displayTime) {
+                                Task { await viewModel.applyMatch(window) }
+                            }
+                            .font(GagTypography.labelMedium)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, GagShapes.spacingM)
+                            .padding(.vertical, GagShapes.spacingS)
+                            .background(GagColors.brandOrange)
+                            .clipShape(GagShapes.cornerRadius(GagShapes.radiusPill))
+                        }
+                    }
                 }
-            } message: {
-                Text("Your cart contains items from a different outlet. Clear cart and add from this outlet?")
+            }
+            HStack {
+                Button("Cancel") {
+                    viewModel.exitMatchMode()
+                }
+                .font(GagTypography.labelLarge)
+                .foregroundStyle(GagColors.onSurfaceVariant)
+                Spacer()
+                Text("\(viewModel.selectedItemIds.count) selected")
+                    .font(GagTypography.labelMedium)
+                    .foregroundStyle(GagColors.onSurfaceVariant)
+                Spacer()
+                Button(viewModel.isMatching ? "Matching…" : "Match Slot") {
+                    Task { await viewModel.computeMatches() }
+                }
+                .font(GagTypography.labelLarge)
+                .foregroundStyle(GagColors.brandOrange)
+                .disabled(viewModel.selectedItemIds.count < 2 || viewModel.isMatching)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func slotPickerSheet(_ item: CartItem, viewModel: CartViewModel?) -> some View {
+        NavigationStack {
+            let slots = viewModel?.slotsByOutlet[item.outletId] ?? []
+            List {
+                if slots.isEmpty {
+                    Text("No pickup slots for this outlet today.")
+                        .font(GagTypography.bodyMedium)
+                        .foregroundStyle(GagColors.onSurfaceVariant)
+                } else {
+                    ForEach(slots) { slot in
+                        Button {
+                            Task {
+                                await viewModel?.setItemSlot(item, slotId: slot.id)
+                                slotSheetItem = nil
+                            }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(slot.displayTime)
+                                        .font(GagTypography.bodyMedium)
+                                        .foregroundStyle(GagColors.onSurface)
+                                    Text(slot.isSelectable
+                                        ? "\(slot.availableCount) left"
+                                        : "FULL")
+                                        .font(GagTypography.labelSmall)
+                                        .foregroundStyle(slot.isSelectable
+                                            ? GagColors.onSurfaceVariant
+                                            : GagColors.slotFull)
+                                }
+                                Spacer()
+                                if item.slotId == slot.id {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(GagColors.brandOrange)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!slot.isSelectable)
+                    }
+                }
+            }
+            .navigationTitle("Pickup Slot")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Close") { slotSheetItem = nil }
+                }
             }
         }
     }
@@ -129,9 +252,22 @@ struct CartView: View {
 struct CartItemRow: View {
     let item: CartItem
     let viewModel: CartViewModel
+    var matchMode = false
+    var selected = false
+    var onToggleSelect: () -> Void = {}
+    var onPickSlot: () -> Void = {}
 
     var body: some View {
         HStack(spacing: GagShapes.spacingM) {
+            if matchMode {
+                Button(action: onToggleSelect) {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 22))
+                        .foregroundStyle(selected ? GagColors.brandOrange : GagColors.outlineVariant)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(selected ? "Deselect \(item.foodName)" : "Select \(item.foodName)")
+            }
             Group {
                 if let urlString = item.foodImageUrl, let url = URL(string: urlString) {
                     AsyncImage(url: url) { phase in
@@ -148,9 +284,8 @@ struct CartItemRow: View {
             }
             .frame(width: 60, height: 60)
             .clipShape(GagShapes.cornerRadius(GagShapes.radiusMedium))
-
             VStack(alignment: .leading, spacing: 4) {
-                HStack {
+                HStack(spacing: 6) {
                     VegIndicator(isVeg: item.isVeg)
                     Text(item.foodName)
                         .font(GagTypography.bodyMedium)
@@ -172,6 +307,20 @@ struct CartItemRow: View {
                         .font(GagTypography.labelLarge)
                         .foregroundStyle(GagColors.brandOrange)
                 }
+
+                Button {
+                    onPickSlot()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 12))
+                        Text(slotLabel)
+                            .font(GagTypography.labelSmall)
+                    }
+                    .foregroundStyle(GagColors.onSurfaceVariant)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Choose pickup slot for \(item.foodName)")
             }
 
             Spacer()
@@ -194,6 +343,13 @@ struct CartItemRow: View {
         .padding(.vertical, GagShapes.spacingS)
         .listRowBackground(GagColors.surface)
         .listRowSeparator(.hidden)
+    }
+
+    private var slotLabel: String {
+        if let slot = viewModel.slot(for: item) {
+            return slot.displayTime
+        }
+        return item.slotId == nil ? "Choose slot" : "Slot unavailable"
     }
 
     private func customizationLabel(_ custom: SelectedCustomization) -> String {

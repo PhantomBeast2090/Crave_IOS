@@ -30,9 +30,14 @@ protocol OrderRepository: Sendable {
     /// Find the backend cart id for the current user (throws when missing).
     func backendCartId() async throws -> String
 
-    /// Call `place_order` and return the full created order.
+    /// Find the backend cart id for one outlet (multi-cart backends).
+    /// Defaults to `backendCartId()` for single-cart backends.
+    func backendCartId(forOutlet outletId: String) async throws -> String
+
+    /// Call `place_order` for one cart + slot and return the created order.
+    /// Multi-outlet checkouts call this once per outlet section.
     /// Never clears the cart — the caller does that after confirmation.
-    func placeOrder(pickupSlotId: String, paymentMethod: PaymentMethod) async throws -> Order
+    func placeOrder(cartId: String, pickupSlotId: String, paymentMethod: PaymentMethod) async throws -> Order
 
     /// Cancel a PLACED order (student). Reason is required by the trigger path.
     func cancelOrder(orderId: String, reason: String) async throws -> Order

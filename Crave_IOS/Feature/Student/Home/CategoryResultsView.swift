@@ -21,16 +21,6 @@ struct CategoryResultsView: View {
         .navigationBarTitleDisplayMode(.large)
         .task { await setup() }
         .refreshable { await viewModel?.refresh() }
-        .alert("Different Outlet", isPresented: conflictBinding) {
-            Button("Clear & Add", role: .destructive) {
-                quickAdd?.confirmConflictAdd()
-            }
-            Button("Keep Cart", role: .cancel) {
-                quickAdd?.dismissConflict()
-            }
-        } message: {
-            Text("Your cart contains items from a different outlet. Clear cart and add from this outlet?")
-        }
         .navigationDestination(item: detailBinding) { item in
             FoodDetailView(foodId: item.id, outletId: item.outletId)
         }
@@ -60,13 +50,6 @@ struct CategoryResultsView: View {
         )
     }
 
-    private var conflictBinding: Binding<Bool> {
-        Binding(
-            get: { quickAdd?.conflictItem != nil },
-            set: { if !$0 { quickAdd?.dismissConflict() } }
-        )
-    }
-
     @ViewBuilder
     private func content(viewModel: CategoryResultsViewModel) -> some View {
         switch viewModel.state {
@@ -91,10 +74,20 @@ struct CategoryResultsView: View {
     private func resultsList(viewModel: CategoryResultsViewModel) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: GagShapes.spacingL) {
-                Text("Find it around campus")
-                    .font(GagTypography.titleSmall)
-                    .foregroundStyle(GagColors.onSurfaceVariant)
-                    .padding(.horizontal, GagShapes.spacingL)
+                HStack(spacing: GagShapes.spacingM) {
+                    CategoryArtwork(motif: CategoryMotif.of(category.name), size: 72)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(category.name)
+                            .font(CraveFonts.orbitScaled(size: 26))
+                            .foregroundStyle(GagColors.craveInk)
+                        Text("Find it around campus")
+                            .font(GagTypography.titleSmall)
+                            .foregroundStyle(GagColors.craveMuted)
+                    }
+                }
+                .padding(.horizontal, GagShapes.spacingL)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(category.name). Find it around campus.")
 
                 Text("\(viewModel.dishCount) dishes across \(viewModel.visibleSections.count) outlets")
                     .font(GagTypography.labelMedium)

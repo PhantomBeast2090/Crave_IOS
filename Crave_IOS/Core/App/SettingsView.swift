@@ -90,6 +90,17 @@ struct SettingsView: View {
 }
 
 struct AboutView: View {
+    /// Bundled SIL OFL 1.1 text for the Orbit brand typeface (copyright +
+    /// license notice must ship with the font binary).
+    private var fontLicenseText: String {
+        if let url = Bundle.main.url(forResource: "OFL", withExtension: "txt"),
+           let text = try? String(contentsOf: url, encoding: .utf8),
+           !text.isEmpty {
+            return text
+        }
+        return "Orbit © 2022 The Orbit Project Authors (https://github.com/JAMO-TYPEFACE/Orbit). Licensed under the SIL Open Font License, Version 1.1."
+    }
+
     var body: some View {
         List {
             Section {
@@ -112,6 +123,16 @@ struct AboutView: View {
             Section("Legal") {
                 Label("Terms of Service", systemImage: "doc.text")
                 Label("Privacy Policy", systemImage: "hand.raised")
+                NavigationLink {
+                    ScrollView {
+                        Text(fontLicenseText)
+                            .font(.system(.body, design: .monospaced))
+                            .padding()
+                    }
+                    .navigationTitle("Font License")
+                } label: {
+                    Label("Font License (Orbit, OFL 1.1)", systemImage: "textformat")
+                }
             }
         }
         .navigationTitle("About")

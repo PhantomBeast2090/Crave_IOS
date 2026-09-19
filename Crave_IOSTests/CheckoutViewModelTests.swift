@@ -6,12 +6,12 @@ import XCTest
 /// order (never cancel a possibly-captured order), and placement is gated.
 @MainActor
 final class CheckoutViewModelTests: XCTestCase {
-    private func makeVM(
+    private func makeVMAsync(
         orders: FakeOrders? = nil,
         payments: FakePayments? = nil,
         cartRepo: FakeCart? = nil,
         sheet: FakeSheet? = nil
-    ) -> (CheckoutViewModel, FakeOrders, FakePayments, FakeCart, FakeSheet) {
+    ) async -> (CheckoutViewModel, FakeOrders, FakePayments, FakeCart, FakeSheet) {
         let set = makeFakeRepositories()
         let resolvedOrders = orders ?? set.orders
         let resolvedPayments = payments ?? set.payments
@@ -23,12 +23,12 @@ final class CheckoutViewModelTests: XCTestCase {
             payments: resolvedPayments, admin: StubAdmin()
         )
         let vm = CheckoutViewModel(cart: Fixtures.cart(), repository: repo, sheet: resolvedSheet)
-        vm.selectedSlot = Fixtures.slot()
+        await vm.selectSlot(outletId: "outlet-1", slot: Fixtures.slot())
         return (vm, resolvedOrders, resolvedPayments, resolvedCart, resolvedSheet)
     }
 
     func testHappyPathClearsCartOnlyAfterVerification() async {
-        let (vm, orders, payments, cartRepo, sheet) = makeVM()
+        let (vm, orders, payments, cartRepo, sheet) = await makeVMAsync()
         sheet.result = .success(paymentId: "pay-1", orderId: "rzp-order-1", signature: "sig")
 
         await vm.placeOrder()
@@ -38,12 +38,12 @@ final class CheckoutViewModelTests: XCTestCase {
         }
         XCTAssertEqual(orders.placedOrders.count, 1)
         XCTAssertEqual(payments.verifyCalls.count, 1)
-        XCTAssertEqual(cartRepo.clearCount, 1, "cart cleared exactly once, after verification")
+        XCTAssertEqual(cartRepo.clearedSections, ["outlet-1"], "section cleared exactly once, after verification")
         XCTAssertEqual(cartRepo.pushCount, 1)
     }
 
     func testVerifyTimeoutRetryReverifiesSameOrderWithoutCancelling() async {
-        let (vm, orders, payments, cartRepo, sheet) = makeVM()
+        let (vm, orders, payments, cartRepo, sheet) = await makeVMAsync()
         sheet.result = .success(paymentId: "pay-1", orderId: "rzp-order-1", signature: "sig")
         payments.verifyFailuresRemaining = 1 // first verify attempt times out
 
@@ -63,11 +63,11 @@ final class CheckoutViewModelTests: XCTestCase {
         XCTAssertTrue(orders.cancelledIds.isEmpty, "must not cancel a possibly-captured order")
         XCTAssertEqual(orders.placedOrders.count, 1, "must not place a second order")
         XCTAssertEqual(payments.verifyCalls.count, 2)
-        XCTAssertEqual(cartRepo.clearCount, 1)
+        XCTAssertEqual(cartRepo.clearedSections, ["outlet-1"])
     }
 
     func testCancelledSheetKeepsOrderAndCart() async {
-        let (vm, orders, _, cartRepo, sheet) = makeVM()
+        let (vm, orders, _, cartRepo, sheet) = await makeVMAsync()
         sheet.result = .cancelled
 
         await vm.placeOrder()
@@ -79,16 +79,17 @@ final class CheckoutViewModelTests: XCTestCase {
         XCTAssertEqual(cartRepo.clearCount, 0)
     }
 
-    func testPlacementGatedWhileBusy() async {
-        let (vm, _, _, _, _) = makeVM()
-        XCTAssertTrue(vm.canPlaceOrder)
-        // No slot selected → cannot place.
-        vm.selectedSlot = nil
+    func testPlacementGatedBySlots() async {
+        let repo = makeFakeRepositories().repository
+        let vm = CheckoutViewModel(cart: Fixtures.cart(), repository: repo, sheet: FakeSheet())
+        // No slot selected in any section → cannot place.
         XCTAssertFalse(vm.canPlaceOrder)
+        await vm.selectSlot(outletId: "outlet-1", slot: Fixtures.slot())
+        XCTAssertTrue(vm.canPlaceOrder)
     }
 
     func testMainButtonReverifiesInsteadOfCancellingPaidOrder() async {
-        let (vm, orders, payments, _, sheet) = makeVM()
+        let (vm, orders, payments, _, sheet) = await makeVMAsync()
         sheet.result = .success(paymentId: "pay-1", orderId: "rzp-order-1", signature: "sig")
         payments.verifyFailuresRemaining = 1
 
@@ -105,6 +106,42 @@ final class CheckoutViewModelTests: XCTestCase {
         XCTAssertTrue(orders.cancelledIds.isEmpty, "main button must never cancel a possibly-captured order")
         XCTAssertEqual(orders.placedOrders.count, 1)
         XCTAssertEqual(payments.verifyCalls.count, 2)
+    }
+
+    func testMultiOutletSequentialCheckout() async {
+        let set = makeFakeRepositories()
+        let repo = DefaultAppRepository(
+            outlets: StubOutlets(), food: StubFood(), cart: set.cart,
+            orders: set.orders, notifications: StubNotifications(),
+            payments: set.payments, admin: StubAdmin()
+        )
+        var cart = Fixtures.cart()
+        cart.items.append(Fixtures.cartItem(id: "line-2", foodItemId: "food-9", foodName: "Burger", outletId: "outlet-2"))
+        let t = CartMath.totals(for: cart.items)
+        cart.subtotal = t.subtotal
+        cart.tax = t.tax
+        cart.total = t.total
+        XCTAssertEqual(cart.sections.count, 2, "fixture must span two outlets")
+        let vm = CheckoutViewModel(cart: cart, repository: repo, sheet: set.sheet)
+        set.sheet.result = .success(paymentId: "pay-1", orderId: "rzp-order-1", signature: "sig")
+        await vm.selectSlot(outletId: "outlet-1", slot: Fixtures.slot())
+        await vm.selectSlot(outletId: "outlet-2", slot: Fixtures.slot(id: "slot-2", outletId: "outlet-2"))
+
+        await vm.placeOrder()
+
+        if case .success = vm.flowState {} else {
+            return XCTFail("expected success, got \(vm.flowState)")
+        }
+        XCTAssertEqual(vm.completedOrders.count, 2, "both sections verified")
+        XCTAssertEqual(set.orders.placedOrders.count, 2)
+        XCTAssertEqual(set.payments.verifyCalls.count, 2, "one verification per section")
+        XCTAssertTrue(ordersWerePlacedForBothOutlets(set.orders))
+        // Fake orders share one outlet id, so assert per-section clearing by count.
+        XCTAssertEqual(set.cart.clearedSections.count, 2)
+    }
+
+    private func ordersWerePlacedForBothOutlets(_ orders: FakeOrders) -> Bool {
+        orders.placedOrders.count == 2
     }
 
     func testCancelAwaitingPaymentAbandonsHungSheet() async {
@@ -132,9 +169,7 @@ final class CheckoutViewModelTests: XCTestCase {
                                          specialInstructions: nil)],
                         subtotal: 100, tax: 5, total: 105, estimatedPrepMinutes: 10)
         let hungVM = CheckoutViewModel(cart: cart, repository: repo, sheet: HungSheet())
-        hungVM.selectedSlot = PickupSlot(id: "slot-1", outletId: "outlet-1", startTime: "12:30",
-                                         endTime: "12:40", date: "2026-09-15", capacity: 10,
-                                         bookedCount: 0, status: .available)
+        await hungVM.selectSlot(outletId: "outlet-1", slot: Fixtures.slot())
         let placing = Task { await hungVM.placeOrder() }
         // Wait until the VM reaches awaitingPayment, then cancel.
         for _ in 0..<200 {

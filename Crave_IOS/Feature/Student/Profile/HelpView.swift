@@ -17,6 +17,7 @@ struct HelpView: View {
     ]
 
     @State private var expandedIndex: Int?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         List {
@@ -33,7 +34,7 @@ struct HelpView: View {
                 ForEach(Array(Self.faqs.enumerated()), id: \.offset) { index, faq in
                     VStack(alignment: .leading, spacing: 6) {
                         Button {
-                            withAnimation {
+                            withAnimation(reduceMotion ? nil : .default) {
                                 expandedIndex = expandedIndex == index ? nil : index
                             }
                         } label: {

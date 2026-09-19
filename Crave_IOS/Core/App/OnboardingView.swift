@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OnboardingView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var currentPage = 0
     
     private let pages = [
@@ -37,7 +38,7 @@ struct OnboardingView: View {
                 title: currentPage == pages.count - 1 ? "Get Started" : "Next",
                 action: {
                     if currentPage < pages.count - 1 {
-                        withAnimation { currentPage += 1 }
+                        withAnimation(reduceMotion ? nil : .default) { currentPage += 1 }
                     } else {
                         appState.completeOnboarding()
                     }

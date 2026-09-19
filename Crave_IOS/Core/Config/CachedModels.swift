@@ -170,6 +170,9 @@ final class CartItemEntity {
     var specialInstructions: String?
     /// JSON-encoded `[SelectedCustomization]`.
     var customizationsData: Data
+    /// Per-item pickup slot id (chosen in cart/checkout). Nil until chosen.
+    /// New in Crave 2.0: lightweight SwiftData migration handles the nil default.
+    var slotId: String? = nil
     /// Dedup key: food + sorted option ids (same key ⇒ merge quantities).
     var customizationKey: String
     var createdAt: Date = Date()
@@ -211,18 +214,21 @@ final class CartItemEntity {
     }
 
     func toCartItem() -> CartItem {
-        CartItem(
+        var item = CartItem(
             id: id,
             foodItemId: foodItemId,
             foodName: foodName,
             foodImageUrl: foodImageUrl,
             outletId: outletId,
+            outletName: outletName,
             price: price,
             quantity: quantity,
             selectedCustomizations: customizations,
             isVeg: isVeg,
             specialInstructions: specialInstructions
         )
+        item.slotId = slotId
+        return item
     }
 }
 

@@ -48,6 +48,7 @@ final class FoodDetailViewModel {
             let newStatus = try await repository.food.toggleFavorite(foodItemId: item.id)
             item.isFavorite = newStatus
             state = .loaded(item)
+            favoriteToken += 1
         } catch is CancellationError {
         } catch {
             addError = "Couldn't update favorite. Check your connection and try again."
@@ -60,12 +61,15 @@ final class FoodDetailViewModel {
     // so they are unit-testable. Mirrors Android FoodDetailViewModel.
 
     var quantity = 1
+    /// Haptic triggers (incremented; views observe via sensoryFeedback).
+    /// Haptics are non-visual feedback and stay on under Reduce Motion.
+    var addFeedbackToken = 0
+    var favoriteToken = 0
     /// variantId -> selected options (multi-select supported via maxSelections).
     var selectedOptions: [String: [CustomizationOption]] = [:]
     var showAddedToCart = false
     var addError: String?
     var isAdding = false
-    var pendingConflictAdd: PendingCartAdd?
     var navigateToCart = false
     private var toastTask: Task<Void, Never>?
 
@@ -137,47 +141,11 @@ final class FoodDetailViewModel {
                     specialInstructions: nil
                 )
                 self.schedulePostAdd()
-            } catch let cartError as CartError {
-                if case .outletConflict = cartError {
-                    self.pendingConflictAdd = PendingCartAdd(
-                        foodItem: item,
-                        outletName: item.outletName,
-                        quantity: self.quantity,
-                        customizations: self.selectedCustomizations(item),
-                        specialInstructions: nil
-                    )
-                } else {
-                    self.addError = cartError.localizedDescription
-                }
             } catch is CancellationError {
             } catch {
                 self.addError = error.localizedDescription
             }
         }
-    }
-
-    func confirmConflictAdd() async {
-        guard let pending = pendingConflictAdd else { return }
-        pendingConflictAdd = nil
-        do {
-            try await repository.cart.clearCart()
-            _ = try await repository.cart.addItem(
-                foodItem: pending.foodItem,
-                outletName: pending.outletName,
-                quantity: pending.quantity,
-                customizations: pending.customizations,
-                specialInstructions: pending.specialInstructions
-            )
-            // Same post-add behavior as the direct path: toast, then Cart.
-            schedulePostAdd()
-        } catch is CancellationError {
-        } catch {
-            addError = error.localizedDescription
-        }
-    }
-
-    func dismissConflict() {
-        pendingConflictAdd = nil
     }
 
     /// Cancel a pending toast→Cart navigation (view disappeared). Prevents a
@@ -190,6 +158,7 @@ final class FoodDetailViewModel {
 
     private func schedulePostAdd() {
         toastTask?.cancel()
+        addFeedbackToken += 1
         withAnimation { showAddedToCart = true }
         toastTask = Task { [weak self] in
             do {

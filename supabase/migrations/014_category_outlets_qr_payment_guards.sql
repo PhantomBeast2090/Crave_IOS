@@ -116,7 +116,7 @@ LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
     SELECT
         o.id,
         o.name,
-        o.location,
+        o.location_description,
         o.is_open,
         COUNT(fi.id)
     FROM outlets o
@@ -127,7 +127,7 @@ LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
      AND fi.deleted_at IS NULL
     WHERE o.is_active
       AND o.deleted_at IS NULL
-    GROUP BY o.id, o.name, o.location, o.is_open
+    GROUP BY o.id, o.name, o.location_description, o.is_open
     ORDER BY COUNT(fi.id) DESC, o.name ASC;
 $$;
 

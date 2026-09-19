@@ -109,6 +109,24 @@ nonisolated enum GagColors {
     static let gradientDarkStart = Color(hex: 0x0F0F0F)
     static let gradientDarkEnd = Color(hex: 0x1A0A00)
 
+    // ─── Crave 2.0 brand tokens ─────────────────────────────────
+    // Warm cream/charcoal identity. Contrast-verified pairs (AA normal):
+    // ink (18.1) + primary deep red (7.8) on craveBackground light;
+    // craveAccent (#EA2A2A, 3.7) is GRAPHICS-ONLY — never body text.
+    // Dark variants are deliberate (warm charcoal), not inversions.
+    static let craveBackground = Color(light: 0xF4ECEC, dark: 0x171111)
+    static let craveSurface = Color(light: 0xFFFFFF, dark: 0x241C1C)
+    static let craveSurfaceVariant = Color(light: 0xEADDDD, dark: 0x322828)
+    static let craveInk = Color(light: 0x000000, dark: 0xFFF7F5)
+    static let craveMuted = Color(light: 0x4A3F3F, dark: 0xD8C4C2)
+    static let cravePrimary = Color(light: 0x8D1B1B, dark: 0xFF8A5C)
+    static let cravePrimaryContainer = Color(light: 0xF5C9B8, dark: 0x4A1E0A)
+    static let craveOnPrimary = Color(light: 0xFFFFFF, dark: 0x1A0A00)
+    /// Brand red for large display type, icons, illustration fills ONLY.
+    /// 3.7:1 on cream — fails AA body text by design. Never body/label text.
+    static let craveAccent = Color(light: 0xEA2A2A, dark: 0xFF5A5A)
+    static let craveDeepRed = Color(light: 0x8D1B1B, dark: 0xB6503C)
+
     // ─── Overlays & chrome ────────────────────────────────────────
     static let cardOverlayDark = Color(hex: 0x000000, opacity: 0.8)
     static let cardOverlayLight = Color(hex: 0xFFFFFF, opacity: 0.1)

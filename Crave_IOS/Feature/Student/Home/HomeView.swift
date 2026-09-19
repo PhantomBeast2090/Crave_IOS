@@ -83,6 +83,7 @@ struct HomeView: View {
                     .padding(.vertical, 2)
                     .background(GagColors.brandOrange)
                     .clipShape(Capsule())
+                    .contentTransition(.numericText())
                     .offset(x: 10, y: -8)
             }
         }
@@ -255,20 +256,29 @@ private struct SectionHeader: View {
 
 struct CategoryChip: View {
     let category: FoodCategory
-    
+
     var body: some View {
         VStack(spacing: GagShapes.spacingXS) {
-            Text(category.emoji)
-                .font(.system(size: 28))
+            // Backend emojis are empty upstream: the vector motif IS the
+            // category identity (falls back to the emoji when present).
+            if category.emoji.isEmpty {
+                CategoryArtwork(motif: CategoryMotif.of(category.name), size: 52)
+            } else {
+                Text(category.emoji)
+                    .font(.system(size: 28))
+                    .frame(height: 52)
+            }
             Text(category.name)
                 .font(GagTypography.labelMedium)
                 .foregroundStyle(GagColors.onSurface)
                 .lineLimit(1)
         }
-        .frame(width: 80)
+        .frame(width: 88)
         .padding(.vertical, GagShapes.spacingM)
-        .background(GagColors.surfaceVariant)
+        .background(GagColors.craveSurfaceVariant)
         .clipShape(GagShapes.cornerRadius(GagShapes.radiusLarge))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(category.name) category")
     }
 }
 

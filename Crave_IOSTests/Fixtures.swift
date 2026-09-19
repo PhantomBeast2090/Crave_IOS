@@ -41,7 +41,9 @@ final class FakeOrders: OrderRepository, @unchecked Sendable {
 
     func backendCartId() async throws -> String { "cart-1" }
 
-    func placeOrder(pickupSlotId: String, paymentMethod: PaymentMethod) async throws -> Order {
+    func backendCartId(forOutlet outletId: String) async throws -> String { "cart-\(outletId)" }
+
+    func placeOrder(cartId: String, pickupSlotId: String, paymentMethod: PaymentMethod) async throws -> Order {
         if let placeError { throw placeError }
         let order = makeOrder()
         placedOrders.append(order)
@@ -91,6 +93,7 @@ final class FakePayments: PaymentRepository, @unchecked Sendable {
 final class FakeCart: CartRepository, @unchecked Sendable {
     var pushCount = 0
     var clearCount = 0
+    var clearedSections: [String] = []
     var cart: Cart?
 
     func observeCart() -> AsyncStream<Cart?> {
@@ -115,7 +118,12 @@ final class FakeCart: CartRepository, @unchecked Sendable {
         throw AppError.message("unimplemented in fake")
     }
 
+    func setSlot(cartItemId: String, slotId: String?) async throws -> Cart {
+        throw AppError.message("unimplemented in fake")
+    }
+
     func clearCart() async throws { clearCount += 1 }
+    func clearSection(outletId: String) async throws { clearedSections.append(outletId) }
     func clearLocal() async throws { clearCount += 1 }
     func pushToBackend() async throws { pushCount += 1 }
 }
