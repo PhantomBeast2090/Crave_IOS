@@ -144,6 +144,97 @@ final class CheckoutViewModelTests: XCTestCase {
         orders.placedOrders.count == 2
     }
 
+    private func makeTwoOutletVM(
+        orders: FakeOrders = FakeOrders(),
+        payments: FakePayments = FakePayments(),
+        cartRepo: FakeCart = FakeCart(),
+        sheet: FakeSheet = FakeSheet()
+    ) async -> (CheckoutViewModel, FakeOrders, FakePayments, FakeCart, FakeSheet) {
+        let repo = DefaultAppRepository(
+            outlets: StubOutlets(), food: StubFood(), cart: cartRepo,
+            orders: orders, notifications: StubNotifications(),
+            payments: payments, admin: StubAdmin()
+        )
+        var cart = Fixtures.cart()
+        cart.items.append(Fixtures.cartItem(id: "line-2", foodItemId: "food-9", foodName: "Burger", outletId: "outlet-2"))
+        let t = CartMath.totals(for: cart.items)
+        cart.subtotal = t.subtotal
+        cart.tax = t.tax
+        cart.total = t.total
+        let vm = CheckoutViewModel(cart: cart, repository: repo, sheet: sheet)
+        await vm.selectSlot(outletId: "outlet-1", slot: Fixtures.slot())
+        await vm.selectSlot(outletId: "outlet-2", slot: Fixtures.slot(id: "slot-2", outletId: "outlet-2"))
+        return (vm, orders, payments, cartRepo, sheet)
+    }
+
+    func testSecondSectionPlacementFailureKeepsVerifiedSection() async {
+        let orders = FakeOrders()
+        orders.placeFailureAtAttempt = 2 // first section verifies, second fails to place
+        let (vm, _, _, cartRepo, sheet) = await makeTwoOutletVM(orders: orders)
+        sheet.result = .success(paymentId: "pay-1", orderId: "rzp-order-1", signature: "sig")
+
+        await vm.placeOrder()
+
+        if case .error = vm.flowState {} else {
+            return XCTFail("expected error, got \(vm.flowState)")
+        }
+        // Section 1 verified (cleared); section 2 never placed so there is
+        // nothing unpaid to compensate.
+        XCTAssertTrue(orders.cancelledIds.isEmpty)
+        XCTAssertEqual(cartRepo.clearedSections, ["outlet-1"])
+        XCTAssertEqual(vm.completedOrders.count, 1)
+        if case .error(let message) = vm.flowState {
+            XCTAssertFalse(message.contains("contact support"), "no orphans, no support copy: \(message)")
+        }
+    }
+
+    func testCreateFailureCompensatesPlacedOrder() async {
+        let orders = FakeOrders()
+        let payments = FakePayments()
+        payments.createFailureAtAttempt = 1 // create fails before any sheet
+        let (vm, _, _, _, sheet) = await makeTwoOutletVM(orders: orders, payments: payments)
+        sheet.result = .success(paymentId: "pay-1", orderId: "rzp-order-1", signature: "sig")
+
+        await vm.placeOrder()
+
+        if case .error = vm.flowState {} else {
+            return XCTFail("expected error, got \(vm.flowState)")
+        }
+        // Pre-payment failure: the placed order is safe to cancel immediately.
+        XCTAssertEqual(orders.cancelledIds.count, 1)
+        if case .error(let message) = vm.flowState {
+            XCTAssertFalse(message.contains("contact support"), "compensated, no support copy: \(message)")
+        }
+    }
+
+    func testCompensationFailureSurfacesOrderNumbers() async {
+        let orders = FakeOrders()
+        let payments = FakePayments()
+        payments.createFailureAtAttempt = 1 // pre-payment: safe to compensate…
+        orders.cancelError = AppError.message("cancel RPC down") // …but compensation itself fails
+        let (vm, _, _, _, sheet) = await makeTwoOutletVM(orders: orders, payments: payments)
+        sheet.result = .success(paymentId: "pay-1", orderId: "rzp-order-1", signature: "sig")
+
+        await vm.placeOrder()
+
+        if case .error(let message) = vm.flowState {
+            XCTAssertTrue(message.contains("GAG-TEST-1"), "orphan order number must surface: \(message)")
+            XCTAssertTrue(message.contains("contact support"), "must direct to support: \(message)")
+            XCTAssertTrue(message.contains("create failed"), "original error must not be masked: \(message)")
+        } else {
+            return XCTFail("expected error, got \(vm.flowState)")
+        }
+    }
+
+    func testSelectSlotPersistsBestEffort() async {
+        // FakeCart.setSlot always throws: selection must still record (placement
+        // reads the VM dict, never line slotIds), with no error state change.
+        let (vm, _, _, _, _) = await makeVMAsync()
+        await vm.selectSlot(outletId: "outlet-1", slot: Fixtures.slot())
+        XCTAssertEqual(vm.sections.first?.selectedSlot?.id, "slot-1")
+        XCTAssertTrue(vm.canPlaceOrder)
+    }
+
     func testCancelAwaitingPaymentAbandonsHungSheet() async {
         @MainActor
         final class HungSheet: PaymentSheetProvider {

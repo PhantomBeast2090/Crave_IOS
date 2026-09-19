@@ -10,7 +10,12 @@ final class FakeOrders: OrderRepository, @unchecked Sendable {
     var placedOrders: [Order] = []
     var cancelledIds: [String] = []
     var placeError: Error?
+    /// Throw on exactly this 1-based placement attempt (nil = never).
+    var placeFailureAtAttempt: Int?
+    /// Throw from cancelOrder (compensation-failure path).
+    var cancelError: Error?
     var slotToReturn: PickupSlot?
+    private var placeAttempts = 0
 
     private func makeOrder(id: String = UUID().uuidString) -> Order {
         Order(
@@ -44,13 +49,18 @@ final class FakeOrders: OrderRepository, @unchecked Sendable {
     func backendCartId(forOutlet outletId: String) async throws -> String { "cart-\(outletId)" }
 
     func placeOrder(cartId: String, pickupSlotId: String, paymentMethod: PaymentMethod) async throws -> Order {
+        placeAttempts += 1
         if let placeError { throw placeError }
+        if placeFailureAtAttempt == placeAttempts {
+            throw AppError.message("placement failed")
+        }
         let order = makeOrder()
         placedOrders.append(order)
         return order
     }
 
     func cancelOrder(orderId: String, reason: String) async throws -> Order {
+        if let cancelError { throw cancelError }
         cancelledIds.append(orderId)
         return makeOrder(id: orderId)
     }
@@ -75,10 +85,17 @@ final class FakePayments: PaymentRepository, @unchecked Sendable {
     var verifyCalls: [PaymentVerificationRequest] = []
     /// Fail the next `count` verify calls, then succeed.
     var verifyFailuresRemaining = 0
+    /// Throw from create on exactly this 1-based attempt (nil = never).
+    var createFailureAtAttempt: Int?
     var isOnlinePaymentConfigured = true
+    private var createAttempts = 0
 
     func createRazorpayOrder(orderId: String) async throws -> RazorpayOrderDetails {
-        RazorpayOrderDetails(razorpayOrderId: "rzp-order-1", amount: 10500, keyId: "key-test", currency: "INR")
+        createAttempts += 1
+        if createFailureAtAttempt == createAttempts {
+            throw AppError.message("create failed")
+        }
+        return RazorpayOrderDetails(razorpayOrderId: "rzp-order-1", amount: 10500, keyId: "key-test", currency: "INR")
     }
 
     func verifyRazorpayPayment(_ request: PaymentVerificationRequest) async throws {

@@ -149,11 +149,14 @@ final class CheckoutViewModel {
     }
 
     /// Choose a section's slot (also persisted onto its lines for cart resume).
+    /// Persistence is best-effort and intentionally explicit about it:
+    /// placement reads `selectedSlot` (never line slotIds), so a persistence
+    /// failure only degrades the cart-resume display back to "Choose slot".
     func selectSlot(outletId: String, slot: PickupSlot) async {
         guard let index = sections.firstIndex(where: { $0.outletId == outletId }) else { return }
         sections[index].selectedSlot = slot
         for item in sections[index].items {
-            try? await repository.cart.setSlot(cartItemId: item.id, slotId: slot.id)
+            _ = try? await repository.cart.setSlot(cartItemId: item.id, slotId: slot.id)
         }
     }
 
@@ -213,10 +216,10 @@ final class CheckoutViewModel {
                     }
                 } catch {
                     // Compensate: cancel what this run placed (all unpaid).
-                    for order in placed {
-                        try? await repository.orders.cancelOrder(orderId: order.id, reason: "Multi-outlet placement failed")
-                    }
-                    throw error
+                    // Orphan ids surface in the error; the original failure
+                    // is never masked.
+                    let orphans = await compensate(placed)
+                    throw placementError(error, orphans: orphans)
                 }
                 try? await repository.cart.clearCart()
                 pendingOrderId = nil
@@ -234,6 +237,7 @@ final class CheckoutViewModel {
                 guard let slot = section.selectedSlot else { continue }
                 let cartId = try await repository.orders.backendCartId(forOutlet: section.outletId)
                 let order: Order
+                let details: RazorpayOrderDetails
                 do {
                     order = try await repository.orders.placeOrder(
                         cartId: cartId,
@@ -241,19 +245,19 @@ final class CheckoutViewModel {
                         paymentMethod: paymentMethod
                     )
                     pendingPlacedUnpaid.append(order)
+                    // Still pre-payment (no sheet shown, no money moved), so a
+                    // create-failure is safe to compensate immediately.
+                    details = try await repository.payments.createRazorpayOrder(orderId: order.id)
                 } catch {
                     // Compensate only orders placed (not paid) in THIS run.
-                    for placed in pendingPlacedUnpaid {
-                        try? await repository.orders.cancelOrder(orderId: placed.id, reason: "Multi-outlet placement failed")
-                    }
+                    let orphans = await compensate(pendingPlacedUnpaid)
                     pendingPlacedUnpaid = []
-                    throw error
+                    throw placementError(error, orphans: orphans)
                 }
                 pendingOrderId = order.id
                 pendingVerification = nil // fresh order, previous verify context is stale
 
                 flowState = .awaitingPayment(order: order)
-                let details = try await repository.payments.createRazorpayOrder(orderId: order.id)
 
                 armSheetTimeout(for: order.id)
                 let sheetResult = await sheet.pay(
@@ -301,6 +305,30 @@ final class CheckoutViewModel {
 
     /// Orders placed (not yet verified) by the current run, for compensation.
     private var pendingPlacedUnpaid: [Order] = []
+
+    /// Cancel orders placed (never paid) by the current run after a placement
+    /// failure. Returns the order numbers that could NOT be cancelled — those
+    /// linger server-side holding inventory/slots and need support cleanup.
+    /// Callers surface the ids; the original placement error is never masked.
+    private func compensate(_ orders: [Order]) async -> [String] {
+        var orphans: [String] = []
+        for order in orders {
+            do {
+                _ = try await repository.orders.cancelOrder(orderId: order.id, reason: "Multi-outlet placement failed")
+            } catch {
+                orphans.append(order.orderNumber)
+            }
+        }
+        return orphans
+    }
+
+    private func placementError(_ error: Error, orphans: [String]) -> Error {
+        guard !orphans.isEmpty else { return error }
+        let numbers = orphans.joined(separator: ", ")
+        return AppError.message(
+            "\(error.localizedDescription) Some orders (\(numbers)) may still be active — contact support with these numbers."
+        )
+    }
 
     /// User escape hatch while waiting on the sheet: abandon the wait and
     /// keep the order + cart intact for a later retry.
