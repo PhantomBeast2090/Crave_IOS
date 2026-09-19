@@ -194,7 +194,7 @@ struct HomeView: View {
                 HStack(spacing: GagShapes.spacingS) {
                     ForEach(categories) { category in
                         NavigationLink {
-                            SearchView()
+                            CategoryResultsView(category: category)
                         } label: {
                             CategoryChip(category: category)
                         }

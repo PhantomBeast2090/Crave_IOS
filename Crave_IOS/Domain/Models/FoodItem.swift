@@ -46,6 +46,19 @@ nonisolated struct FoodCategory: Sendable, Hashable, Identifiable {
     let imageUrl: String?
 }
 
+/// One outlet section on the category results screen: an outlet that
+/// currently offers available dishes in the category, with those dishes.
+/// Outlets with zero matching dishes never appear.
+nonisolated struct CategoryOutlet: Sendable, Hashable, Identifiable {
+    let outletId: String
+    let outletName: String
+    var dishes: [FoodItem]
+
+    var id: String { outletId }
+    var dishCount: Int { dishes.count }
+    var fromPrice: Double? { dishes.map(\.price).min() }
+}
+
 /// Search / filter parameters.
 nonisolated struct FoodSearchFilter: Sendable, Equatable {
     var query: String = ""

@@ -64,6 +64,21 @@ final class VendorMenuViewModel {
         }
     }
 
+    /// Correct an item's dietary classification (vendor-owned items, RLS).
+    /// Used to fix misclassified items after the diet backfill.
+    func toggleDiet(_ item: FoodItem) async {
+        guard updatingItemId == nil else { return }
+        updatingItemId = item.id
+        actionError = nil
+        defer { updatingItemId = nil }
+        do {
+            try await repository.updateFoodDiet(foodId: item.id, isVeg: !item.isVeg)
+            await fetch()
+        } catch is CancellationError {
+        } catch {
+            actionError = error.localizedDescription
+        }
+    }
     func updatePrice(_ item: FoodItem, price: Double) async -> Bool {
         guard updatingItemId == nil, price > 0 else { return false }
         updatingItemId = item.id

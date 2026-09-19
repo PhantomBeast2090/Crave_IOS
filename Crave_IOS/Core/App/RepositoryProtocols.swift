@@ -69,6 +69,16 @@ protocol FoodRepository: Sendable {
     
     /// Update food price
     func updateFoodPrice(foodId: String, price: Double) async throws
+
+    /// Correct an item's dietary classification (vendor-owned items only,
+    /// enforced by RLS). Used to fix misclassified items after the diet
+    /// backfill; never inferred client-side.
+    func updateFoodDiet(foodId: String, isVeg: Bool) async throws
+
+    /// Outlets currently offering available dishes in a category, with counts.
+    /// Backed by `get_outlets_for_category` when deployed; falls back to
+    /// `search_food` aggregation otherwise (see impl).
+    func getOutletsForCategory(_ categoryId: String, categoryName: String) async throws -> [CategoryOutlet]
 }
 
 // MARK: - Combined Repository (for DI convenience)

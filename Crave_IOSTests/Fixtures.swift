@@ -143,6 +143,8 @@ final class StubOutlets: OutletRepository, @unchecked Sendable {
 }
 
 final class StubFood: FoodRepository, @unchecked Sendable {
+    var categorySections: [CategoryOutlet]?
+    var categoryError: Error?
     func searchFood(filter: FoodSearchFilter) async throws -> [FoodItem] { [] }
     func getFoodById(_ foodId: String) async throws -> FoodItem {
         throw AppError.message("unimplemented in stub")
@@ -159,6 +161,11 @@ final class StubFood: FoodRepository, @unchecked Sendable {
     func getVendorFoodItems() async throws -> [FoodItem] { [] }
     func updateFoodAvailability(foodId: String, isAvailable: Bool) async throws {}
     func updateFoodPrice(foodId: String, price: Double) async throws {}
+    func updateFoodDiet(foodId: String, isVeg: Bool) async throws {}
+    func getOutletsForCategory(_ categoryId: String, categoryName: String) async throws -> [CategoryOutlet] {
+        if let categoryError { throw categoryError }
+        return categorySections ?? []
+    }
 }
 
 final class StubNotifications: NotificationRepository, @unchecked Sendable {

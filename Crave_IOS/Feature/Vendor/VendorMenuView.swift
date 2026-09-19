@@ -127,6 +127,14 @@ struct VendorMenuView: View {
                         .foregroundStyle(GagColors.brandOrange)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Edit price for \(item.name)")
+                Button {
+                    Task { await viewModel.toggleDiet(item) }
+                } label: {
+                    VegIndicator(isVeg: item.isVeg)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.isVeg ? "Mark \(item.name) non-vegetarian" : "Mark \(item.name) vegetarian")
                 Toggle("", isOn: Binding(
                     get: { item.isAvailable },
                     set: { _ in Task { await viewModel.toggleAvailability(item) } }

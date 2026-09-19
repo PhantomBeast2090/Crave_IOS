@@ -182,6 +182,56 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
             )
         }
     }
+
+    func getOutletsForCategory(_ categoryId: String, categoryName: String) async throws -> [CategoryOutlet] {
+        // Dishes via search_food (name match, available only). When migration
+        // 014's get_outlets_for_category is live, its exact-ID ordering is
+        // preferred; dishes always come from here (the RPC returns counts).
+        var filter = FoodSearchFilter()
+        filter.category = categoryName
+        filter.availableOnly = true
+        let dishes: [FoodItem]
+        do {
+            dishes = try await searchFood(filter: filter)
+        } catch {
+            throw AppError.message("Couldn't load \(categoryName): \(describeDecodingError(error))")
+        }
+
+        var byOutlet: [String: (name: String, dishes: [FoodItem])] = [:]
+        var order: [String] = []
+        for dish in dishes where dish.isAvailable {
+            if byOutlet[dish.outletId] == nil {
+                byOutlet[dish.outletId] = (dish.outletName, [])
+                order.append(dish.outletId)
+            }
+            byOutlet[dish.outletId]?.dishes.append(dish)
+        }
+
+        // Exact-ID ordering when the 014 RPC exists; silent fallback otherwise
+        // (function-missing is expected until the migration is applied).
+        var rank: [String: Int] = [:]
+        struct OutletRow: Decodable { let outlet_id: String }
+        if let rows: [OutletRow] = try? await client
+            .rpc("get_outlets_for_category", params: ["p_category_id": categoryId])
+            .execute()
+            .value {
+            for (i, row) in rows.enumerated() { rank[row.outlet_id] = i }
+        }
+
+        var sections = order.compactMap { id -> CategoryOutlet? in
+            guard let entry = byOutlet[id], !entry.dishes.isEmpty else { return nil }
+            return CategoryOutlet(outletId: id, outletName: entry.name, dishes: entry.dishes)
+        }
+        if !rank.isEmpty {
+            sections.sort {
+                (rank[$0.outletId] ?? Int.max, -$0.dishCount) <
+                (rank[$1.outletId] ?? Int.max, -$1.dishCount)
+            }
+        } else {
+            sections.sort { $0.dishCount > $1.dishCount }
+        }
+        return sections
+    }
     
     // MARK: - Favorites
     
@@ -292,6 +342,14 @@ final class SupabaseFoodRepository: FoodRepository, Sendable {
         try await client
             .from("food_items")
             .update(["price": price])
+            .eq("id", value: foodId)
+            .execute()
+    }
+
+    func updateFoodDiet(foodId: String, isVeg: Bool) async throws {
+        try await client
+            .from("food_items")
+            .update(["is_veg": isVeg])
             .eq("id", value: foodId)
             .execute()
     }
